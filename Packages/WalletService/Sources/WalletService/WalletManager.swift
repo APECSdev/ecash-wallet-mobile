@@ -162,10 +162,14 @@ public final class WalletManager: @unchecked Sendable {
     /// Internal: `WalletEngineProtocol` is not bridged; engine operations are exposed to the app
     /// through `WalletManager` facade methods (added per slice — balance/sync/send in Slice 2+).
     func engine(for wallet: ManagedWallet) throws -> WalletEngineProtocol {
-        guard let mnemonic = try keyStore.loadMnemonic(walletId: wallet.id) else {
-            throw WalletError.persistenceFailed
-        }
-        return try factory.engine(for: wallet, mnemonic: mnemonic)
+        // Watch-only build: the mnemonic is NOT read here. The factory's engine derives nothing
+        // secret to show balance/addresses/history; the Keychain is touched only at sign time,
+        // through this closure (sign-on-demand, §7 / docs/key-storage.md §3).
+        let keyStore = self.keyStore
+        let walletId = wallet.id
+        return try factory.engine(for: wallet, loadMnemonic: {
+            try keyStore.loadMnemonic(walletId: walletId)
+        })
     }
 
     /// Get-or-build the cached live engine for a walletId (see `engines`).

@@ -86,19 +86,26 @@ public protocol WalletEngineProtocol: AnyObject {
 // SKIP @nobridge
 public final class WalletEngine: WalletEngineProtocol {
     public let network: WalletNetwork
+    /// WATCH-ONLY wallet (built from public descriptors): balance, addresses, sync, PSBT building.
+    /// It cannot sign — signing goes through `signPsbt` (sign-on-demand, §7).
     private let wallet: Wallet
     private let persister: Persister
     /// The Electrum backend URL for this wallet's network (resolved by the factory from
     /// `NetworkRegistry`, so the engine never hardcodes a network/endpoint — Golden Rule §4).
     private let electrumURL: String
+    /// Signs a PSBT on demand by materializing the secret key transiently (factory-supplied).
+    /// Returns whether the PSBT is finalized. The only path that touches private key material.
+    private let signPsbt: (Psbt) throws -> Bool
 
     /// Internal: only the factory (same module) builds this; the app sees `WalletEngineProtocol`.
     /// Kept non-public so the bridge never sees the BDK-typed parameters.
-    init(wallet: Wallet, persister: Persister, network: WalletNetwork, electrumURL: String) {
+    init(wallet: Wallet, persister: Persister, network: WalletNetwork, electrumURL: String,
+         signPsbt: @escaping (Psbt) throws -> Bool) {
         self.wallet = wallet
         self.persister = persister
         self.network = network
         self.electrumURL = electrumURL
+        self.signPsbt = signPsbt
     }
 
     public func balance() throws -> Amount {
@@ -227,9 +234,10 @@ public final class WalletEngine: WalletEngineProtocol {
             throw WalletError.mapping(rawDescription: "\(error)")
         }
 
-        // 3. Sign. A signing failure must never leak the key/descriptor (Golden Rule §2/§8).
+        // 3. Sign ON DEMAND. The watch-only wallet can't sign; `signPsbt` transiently materializes
+        // the key, signs, and drops it (§7). A signing failure must never leak key/descriptor (§2/§8).
         do {
-            let finalized = try wallet.sign(psbt: psbt, signOptions: nil)
+            let finalized = try signPsbt(psbt)
             guard finalized else { throw WalletError.signingFailed }
         } catch let e as WalletError {
             throw e

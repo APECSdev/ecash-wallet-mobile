@@ -263,10 +263,20 @@ it; only "New address" advances the reveal index).
 - [x] SendViewModel state machine (entering→reviewing→broadcasting→sent/failed). Activity rows
       itemize recipient amount vs miner fee. **VM unit-tested (17 Swift Testing cases).**
       *(mainnet-weightier confirm deferred — no mainnet networks shipped.)*
-- [ ] **Narrow the engine to watch-only + sign-on-demand:** build the everyday `Wallet` from the
-      PUBLIC descriptors (no mnemonic), load the mnemonic → private descriptors only to sign here,
-      then drop it. Shrinks the secret's in-memory window; pairs with the per-send gate. See
-      `docs/key-storage.md` §3.
+- [x] **Watch-only + sign-on-demand (2026-06-13):** the everyday `WalletEngine` is built from the
+      stored PUBLIC descriptors (no private keys, no Keychain read) — balance/addresses/sync/PSBT
+      build all work watch-only. Signing goes through a factory `signPsbt` closure that, only at
+      send time, loads the mnemonic, builds a TRANSIENT in-memory private-descriptor `Wallet`,
+      signs, and drops it (BDK derives from the PSBT's BIP32 paths, so a fresh signer signs the
+      watch-only-built PSBT). Shrinks the key's in-memory window to one signing; pairs with the
+      per-send auth gate. **Validated end-to-end on real bdk-swift + live signet** (watch-only
+      build → sign → accepted broadcast) and unit-tested (watch-only reads never load the secret;
+      public-descriptor build derives the correct spec-vector address). `docs/key-storage.md §3`.
+- [x] **Per-send device-auth gate (2026-06-13):** the review screen's Confirm-send is gated on
+      `DeviceAuth` via a `SendViewModel.authorize` seam (`AppState` wires it to bio/passcode,
+      bypassed only when app-lock is toggled off — the gate honors the same Settings switch).
+      Restructured into separate screens (recipient → amount → review/confirm) with platform
+      back/swipe-back instead of custom Back buttons.
 
 ### Slice 6 — Transaction history  🟡
 - [x] List (newest first, pending on top) on the Activity tab + Home preview. Row design per
@@ -291,7 +301,8 @@ it; only "New address" advances the reveal index).
       import. **Selection persists across launches** (UserDefaults id, re-validated on load).
       Home redesigned to the mock: no nav title, balance + eye privacy toggle, 4-circle action
       row (Swap/Buy disabled ghosts until in scope).
-- [ ] Fiat display currency (+ rate service for the $ placeholders); app-lock toggle.
+- [x] App-lock toggle ("Require unlock") in Settings — see Milestone F app lock.
+- [ ] Fiat display currency (+ rate service for the $ placeholders).
 - [ ] Per-network backend endpoint overrides (Electrum/Esplora) scoped per network.
 - [ ] Wallet reorder; per-wallet balance in the manager rows (needs cheap cached balances).
 - [ ] SettingsViewModel / WalletManager UI tests (app-module test target still pending).
@@ -307,7 +318,17 @@ it; only "New address" advances the reveal index).
       (DeviceAuth passes through — verified live on iOS). **9 unit tests.** *(Per-SEND re-auth not
       added — the launch/foreground gate covers the session; revisit with the watch-only/sign-on-
       demand item below. Live Android gate re-verify pending a stable emulator — current AVD's GMS
-      subsystem degraded after heavy cycling; auth mechanism already proven via Backup.)*
+      subsystem degraded after heavy cycling; auth mechanism already proven via Backup.
+      Per-SEND re-auth has since landed — see Slice 5's per-send device-auth gate.)*
+- [x] **UI consistency pass (2026-06-13):** every modal/sheet uses the platform-native
+      dismiss/commit affordances instead of spelled-out "Cancel"/"Done" buttons — shared
+      `CloseToolbarButton` (iOS `Button(role: .close)` → system X) and `ConfirmToolbarButton`
+      (iOS `Button(role: .confirm)` → system checkmark), with Material equivalents on Android.
+      Applied across Send, Backup, Receive, Tx detail, and the wallet manager (Done + rename).
+      Text inputs standardized on `.textFieldStyle(.plain)` + `fieldBoxInset()` (no stray
+      Android focus border, even inner padding on both platforms); scrollbars hidden
+      (`.scrollIndicators(.hidden)`); real brand accent wired (`rgb(232,168,74)` as float
+      colorset so it renders amber on Android, not black).
 - [ ] **Secret-scrub audit** — no seed/xprv/descriptor-with-keys in any log/error/analytics/
       crash path (automated assertion + manual pass).
 - [ ] **Maestro smoke flow** — create → receive → see address, on both platforms

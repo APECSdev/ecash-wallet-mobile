@@ -42,7 +42,7 @@ struct WalletManagerSheet: View {
             .navigationTitle("Wallets")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { dismiss() } label: { Text("Done") }
+                    ConfirmToolbarButton { dismiss() }
                 }
             }
             .navigationDestination(for: WalletManagerRoute.self) { route in
@@ -156,10 +156,11 @@ struct WalletManagerSheet: View {
                 Theme.Colors.bg0.ignoresSafeArea()
                 VStack(alignment: .leading, spacing: Theme.Space.x4) {
                     TextField("Wallet name", text: $renameText)
+                        .textFieldStyle(.plain)
                         .textStyle(.body)
                         .foregroundStyle(Theme.Colors.text0)
                         .autocorrectionDisabled()
-                        .padding(Theme.Space.x3)
+                        .fieldBoxInset()
                         .background(Theme.Colors.bg2, in: RoundedRectangle(cornerRadius: Theme.Radius.md))
                     Text("Names are stored only on this device — they don't travel with the recovery phrase.")
                         .textStyle(.xs)
@@ -177,7 +178,7 @@ struct WalletManagerSheet: View {
             .navigationTitle("Rename wallet")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { renameTarget = nil } label: { Text("Cancel") }
+                    CloseToolbarButton { renameTarget = nil }
                 }
             }
         }

@@ -37,8 +37,11 @@ public protocol WalletEngineFactory: AnyObject {
     func create(network: WalletNetwork, wordCount: Int) throws -> WalletKeys
     /// Validate an imported mnemonic (throws `.invalidMnemonic` on bad checksum) + derive descriptors.
     func restore(network: WalletNetwork, mnemonic: String) throws -> WalletKeys
-    /// Build the live engine for a wallet from its mnemonic.
-    func engine(for wallet: ManagedWallet, mnemonic: String) throws -> WalletEngineProtocol
+    /// Build the live WATCH-ONLY engine for a wallet from its PUBLIC descriptors — no private
+    /// keys are held. `loadMnemonic` is invoked ONLY when signing a send (sign-on-demand, §7 /
+    /// `docs/key-storage.md §3`); its result builds a transient signer that is dropped right after.
+    func engine(for wallet: ManagedWallet,
+                loadMnemonic: @escaping () throws -> String?) throws -> WalletEngineProtocol
     /// Purge the wallet's BDK chain-data store (the factory owns it; the manager can't reach it).
     /// Best-effort: a failed delete must not block wallet removal — the secret is gone first.
     /// Called by `WalletManager.removeWallet` so removal purges EVERY keyed artifact (Golden Rule §5).
@@ -72,7 +75,8 @@ public final class MockWalletEngineFactory: WalletEngineFactory {
                           internalDescriptor: "wpkh(mock/1/*)")
     }
 
-    public func engine(for wallet: ManagedWallet, mnemonic: String) throws -> WalletEngineProtocol {
+    public func engine(for wallet: ManagedWallet,
+                       loadMnemonic: @escaping () throws -> String?) throws -> WalletEngineProtocol {
         MockWalletEngine(network: wallet.network)
     }
 

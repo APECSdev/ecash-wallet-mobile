@@ -24,7 +24,7 @@ struct ReceiveScreen: View {
                 .navigationTitle("Receive")
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
-                        Button { dismiss() } label: { Text("Done") }
+                        ConfirmToolbarButton { dismiss() }
                     }
                 }
         }

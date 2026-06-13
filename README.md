@@ -1,4 +1,12 @@
-# eCash.com Wallet
+<p align="center">
+  <a href="https://ecash.com"><img src="ecash-logo.svg" alt="eCash.com" width="120"></a>
+</p>
+
+<h1 align="center">eCash.com Wallet</h1>
+
+<p align="center">A native, self-custodial mobile wallet for <a href="https://ecash.com">eCash</a>.</p>
+
+---
 
 A native mobile wallet for **eCash** — the [Layer Two Labs](https://layertwolabs.com) Bitcoin
 hardfork that activates Drivechain (BIP300/301) and airdrops eCash 1:1 to BTC holders. One Swift +

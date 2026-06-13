@@ -27,7 +27,7 @@ struct BackupFlowView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     if vm.step != .done {
-                        Button { dismiss() } label: { Text("Cancel") }
+                        CloseToolbarButton { dismiss() }
                     }
                 }
             }

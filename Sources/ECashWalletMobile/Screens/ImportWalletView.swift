@@ -40,6 +40,7 @@ struct ImportWalletView: View {
                     .foregroundStyle(Theme.Colors.text1)
 
                 TextEditor(text: $vm.phrase)
+                    .textFieldStyle(.plain)   // clears Compose's amber focused-border ring (Android)
                     .font(.jbMono(16, .regular))
                     .foregroundStyle(Theme.Colors.text0)
                     .autocorrectionDisabled()
@@ -61,10 +62,11 @@ struct ImportWalletView: View {
 
                 // Optional name (labels are device-local; restoring a seed can't bring one back).
                 TextField("Wallet name (optional — \"\(defaultName)\")", text: $walletName)
+                    .textFieldStyle(.plain)
                     .textStyle(.body)
                     .foregroundStyle(Theme.Colors.text0)
                     .autocorrectionDisabled()
-                    .padding(Theme.Space.x3)
+                    .fieldBoxInset()
                     .background(Theme.Colors.bg2, in: RoundedRectangle(cornerRadius: Theme.Radius.md))
 
                 if let error = vm.errorMessage {

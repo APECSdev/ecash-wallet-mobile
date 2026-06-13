@@ -60,7 +60,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.restore(network: network, mnemonic: Self.mnemonic)
         let wallet = managedWallet(id: "vec-\(network.rawValue)", network: network, keys: keys)
-        let engine = try factory.engine(for: wallet, mnemonic: Self.mnemonic)
+        let engine = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
         let a0 = try engine.nextReceiveAddress()
         let a1 = try engine.nextReceiveAddress()
         XCTAssertEqual(a0.index, Int32(0))
@@ -189,7 +189,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.restore(network: .testnet4, mnemonic: Self.mnemonic)
         let wallet = managedWallet(id: "cn-tn4", network: .testnet4, keys: keys)
-        let engine = try factory.engine(for: wallet, mnemonic: Self.mnemonic)
+        let engine = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
         do {
             // A mainnet (bc1) address on a testnet4 wallet must be rejected.
             _ = try engine.send(to: Self.mainnetExternal0,
@@ -217,7 +217,7 @@ final class BDKWalletEngineTests: XCTestCase {
         let wallet = managedWallet(id: "persist-rt", network: .testnet4, keys: keys)
 
         // First engine: reveal indices 0 and 1 (each call persists the advance).
-        let first = try factory.engine(for: wallet, mnemonic: Self.mnemonic)
+        let first = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
         XCTAssertEqual(try first.nextReceiveAddress().index, Int32(0))
         XCTAssertEqual(try first.nextReceiveAddress().index, Int32(1))
         XCTAssertEqual(try first.balance(), Amount.zero) // unsynced/empty
@@ -225,7 +225,7 @@ final class BDKWalletEngineTests: XCTestCase {
         XCTAssertTrue(try first.listUtxos().isEmpty)
 
         // Second engine over the SAME chain-data dir: it must LOAD, not re-create.
-        let reloaded = try factory.engine(for: wallet, mnemonic: Self.mnemonic)
+        let reloaded = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
         let next = try reloaded.nextReceiveAddress()
         XCTAssertEqual(next.index, Int32(2), "reload must continue the persisted reveal index")
         // And it derives the same address index 0 would have — i.e. the same descriptor/keychain.
@@ -247,7 +247,7 @@ final class BDKWalletEngineTests: XCTestCase {
         let walletId = "purge-me"
         let keys = try factory.restore(network: .testnet4, mnemonic: Self.mnemonic)
         let wallet = managedWallet(id: walletId, network: .testnet4, keys: keys)
-        let engine = try factory.engine(for: wallet, mnemonic: Self.mnemonic)
+        let engine = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
         _ = try engine.nextReceiveAddress() // forces a persisted write
 
         let sqlite = dir.appendingPathComponent("\(walletId).sqlite")
@@ -270,7 +270,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.restore(network: .testnet4, mnemonic: Self.mnemonic)
         let wallet = managedWallet(id: "empty-send", network: .testnet4, keys: keys)
-        let engine = try factory.engine(for: wallet, mnemonic: keys.mnemonic)
+        let engine = try factory.engine(for: wallet, loadMnemonic: { keys.mnemonic })
         do {
             _ = try engine.send(to: Self.testnet4External0, // valid same-network address
                                 amount: Amount(sats: Int64(10_000)),
@@ -279,6 +279,36 @@ final class BDKWalletEngineTests: XCTestCase {
         } catch let error as WalletError {
             XCTAssertEqual(error, WalletError.insufficientFunds)
         }
+        #endif
+    }
+
+    /// Sign-on-demand: the everyday engine is watch-only. Balance, address derivation, history,
+    /// and UTXO listing must NOT read the mnemonic — the secret is touched only when signing a
+    /// send (§7 / docs/key-storage.md §3). Also confirms the watch-only (public-descriptor) build
+    /// still derives the correct spec-vector address, i.e. it's the same wallet, minus signing.
+    func testWatchOnlyEngineNeverReadsMnemonicForReads() throws {
+        #if SKIP
+        throw XCTSkip("real BDK — host only")
+        #else
+        let (factory, dir) = makeFactory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let keys = try factory.restore(network: .testnet4, mnemonic: Self.mnemonic)
+        let wallet = managedWallet(id: "watch-only", network: .testnet4, keys: keys)
+
+        var mnemonicReads = 0
+        let engine = try factory.engine(for: wallet, loadMnemonic: {
+            mnemonicReads += 1
+            return Self.mnemonic
+        })
+
+        _ = try engine.balance()
+        let addr = try engine.nextReceiveAddress()
+        _ = try engine.transactions()
+        _ = try engine.listUtxos()
+
+        XCTAssertEqual(mnemonicReads, 0, "watch-only reads must never load the secret")
+        XCTAssertEqual(addr.address, Self.testnet4External0,
+                       "watch-only build derives the same address as the keyed wallet")
         #endif
     }
 
@@ -300,7 +330,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.create(network: .testnet4, wordCount: 12) // fresh, empty
         let wallet = managedWallet(id: "live-tn4", network: .testnet4, keys: keys)
-        let engine = try factory.engine(for: wallet, mnemonic: keys.mnemonic)
+        let engine = try factory.engine(for: wallet, loadMnemonic: { keys.mnemonic })
 
         try await engine.sync() // must not throw against live Testnet4
         XCTAssertEqual(try engine.balance(), Amount.zero) // fresh wallet → empty
@@ -323,7 +353,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.create(network: .signet, wordCount: 12) // fresh, empty
         let wallet = managedWallet(id: "live-signet", network: .signet, keys: keys)
-        let engine = try factory.engine(for: wallet, mnemonic: keys.mnemonic)
+        let engine = try factory.engine(for: wallet, loadMnemonic: { keys.mnemonic })
 
         try await engine.sync() // must not throw against the live signet endpoint
         XCTAssertEqual(try engine.balance(), Amount.zero) // fresh wallet → empty

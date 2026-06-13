@@ -30,13 +30,7 @@ struct SendScreen: View {
                 .navigationTitle("Send to")
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
-                        // System close affordance (no spelled-out "Cancel"): the iOS-26 `.close`
-                        // role renders the standard circular X; Android gets the Material close glyph.
-                        #if os(iOS)
-                        Button(role: .close) { dismiss() }
-                        #else
-                        Button { dismiss() } label: { Image(icon: Icon.close) }
-                        #endif
+                        CloseToolbarButton { dismiss() }
                     }
                 }
                 .navigationDestination(for: SendRoute.self) { route in
@@ -80,7 +74,7 @@ struct SendScreen: View {
                     .foregroundStyle(Theme.Colors.text0)
                     .autocorrectionDisabled()
                     .noAutocapitalization()
-                    .padding(Theme.Space.x3)
+                    .fieldBoxInset()
                     .background(Theme.Colors.bg2, in: RoundedRectangle(cornerRadius: Theme.Radius.md))
 
                 Spacer()

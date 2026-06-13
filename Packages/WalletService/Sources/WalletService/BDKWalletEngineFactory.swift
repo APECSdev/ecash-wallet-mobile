@@ -55,27 +55,21 @@ public final class BDKWalletEngineFactory: WalletEngineFactory {
         return try walletKeys(network: network, mnemonic: mnemonic)
     }
 
-    /// Build the live engine for a wallet from its mnemonic. Re-derives the SECRET BIP84 descriptors
-    /// at runtime (never persisted — Golden Rule §2/§7), opens the wallet's own BDK SQLite store, and
-    /// wraps the live `Wallet`. First open has no persisted changeset, so `Wallet.load` throws and we
-    /// fall through to the network-aware constructor; later opens reload (with `check_network`).
-    public func engine(for wallet: ManagedWallet, mnemonic mnemonicPhrase: String) throws -> WalletEngineProtocol {
+    /// Build the live WATCH-ONLY engine for a wallet. The everyday `Wallet` is built from the
+    /// stored PUBLIC descriptors only — it can show balance, derive addresses, sync, and BUILD an
+    /// unsigned PSBT, but it holds NO private keys. Private material materializes only inside the
+    /// `signPsbt` closure, at send time (sign-on-demand, §7 / `docs/key-storage.md §3`): it loads
+    /// the mnemonic, builds a TRANSIENT in-memory signer wallet from the secret descriptors, signs,
+    /// and lets all of it go out of scope immediately. First open has no persisted changeset, so
+    /// `Wallet.load` throws and we fall through to the network-aware constructor; later opens reload.
+    public func engine(for wallet: ManagedWallet,
+                       loadMnemonic: @escaping () throws -> String?) throws -> WalletEngineProtocol {
         let net = BDKSeam.network(wallet.network)
-
-        let mnemonic: Mnemonic
         do {
-            mnemonic = try Mnemonic.fromString(mnemonic: mnemonicPhrase)
-        } catch {
-            throw WalletError.invalidMnemonic
-        }
-
-        let secretKey = DescriptorSecretKey(network: net, mnemonic: mnemonic, password: nil)
-        let externalDescriptor = Descriptor.newBip84(secretKey: secretKey,
-                                                     keychainKind: BDKSeam.externalKeychain(), network: net)
-        let internalDescriptor = Descriptor.newBip84(secretKey: secretKey,
-                                                     keychainKind: BDKSeam.internalKeychain(), network: net)
-
-        do {
+            // WATCH-ONLY: build from the persisted PUBLIC descriptor strings (no secrets on the
+            // everyday wallet or its on-disk chain store).
+            let externalDescriptor = try Descriptor(descriptor: wallet.externalDescriptor, network: net)
+            let internalDescriptor = try Descriptor(descriptor: wallet.internalDescriptor, network: net)
             let persister = try makePersister(for: wallet.id)
             // `var` (not deferred `let`): assigning in both do/catch transpiles to a reassigned
             // Kotlin `val`, which Kotlin rejects.
@@ -92,8 +86,30 @@ public final class BDKWalletEngineFactory: WalletEngineFactory {
                 _ = try bdkWallet.persist(persister: persister)
             }
             let endpoint = electrumURLOverride ?? NetworkRegistry.params(for: wallet.network).defaultBackend
+
+            // SIGN-ON-DEMAND: the only place private keys exist, and only for the duration of one
+            // signing. BDK derives the signing key from the PSBT's own BIP32 paths, so a fresh
+            // in-memory wallet from the secret descriptors signs a PSBT the watch-only wallet built.
+            let signPsbt: (Psbt) throws -> Bool = { psbt in
+                guard let phrase = try loadMnemonic() else { throw WalletError.signingFailed }
+                let mnemonic: Mnemonic
+                do {
+                    mnemonic = try Mnemonic.fromString(mnemonic: phrase)
+                } catch {
+                    throw WalletError.signingFailed
+                }
+                let secretKey = DescriptorSecretKey(network: net, mnemonic: mnemonic, password: nil)
+                let extPriv = Descriptor.newBip84(secretKey: secretKey,
+                                                  keychainKind: BDKSeam.externalKeychain(), network: net)
+                let intPriv = Descriptor.newBip84(secretKey: secretKey,
+                                                  keychainKind: BDKSeam.internalKeychain(), network: net)
+                let signer = try Wallet(descriptor: extPriv, changeDescriptor: intPriv,
+                                        network: net, persister: Persister.newInMemory())
+                return try signer.sign(psbt: psbt, signOptions: nil)
+            }
+
             return WalletEngine(wallet: bdkWallet, persister: persister,
-                                network: wallet.network, electrumURL: endpoint)
+                                network: wallet.network, electrumURL: endpoint, signPsbt: signPsbt)
         } catch {
             // Scrub: a BDK error string can embed key material — classify, never echo (Golden Rule §2).
             throw WalletError.mapping(rawDescription: "\(error)")

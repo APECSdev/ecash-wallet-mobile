@@ -62,6 +62,19 @@ extension View {
         #endif
     }
 
+    /// Inset for a text field sitting inside a `Theme.bg2` box. iOS fields are text-height, so we
+    /// pad all sides. Android's `TextField` maps to a Material `OutlinedTextField` that already has
+    /// a ~56dp min-height + internal vertical padding, so we inset horizontally ONLY — otherwise
+    /// our padding stacks on the field's and the box looks over-tall.
+    @ViewBuilder
+    func fieldBoxInset() -> some View {
+        #if os(iOS)
+        self.padding(Theme.Space.x3)
+        #else
+        self.padding(.horizontal, Theme.Space.x3)
+        #endif
+    }
+
     /// Keep a label to one truncating line on iOS (tight rows wrap there). Android is gated
     /// out: `lineLimit` is on the historical Compose-crash modifier list (CLAUDE.md memory) and
     /// its rows already fit single-line.

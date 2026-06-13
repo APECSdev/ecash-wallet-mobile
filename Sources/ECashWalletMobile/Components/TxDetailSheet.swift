@@ -52,7 +52,7 @@ struct TxDetailSheet: View {
             .navigationTitle("Transaction")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { dismiss() } label: { Text("Done") }
+                    ConfirmToolbarButton { dismiss() }
                 }
             }
         }
