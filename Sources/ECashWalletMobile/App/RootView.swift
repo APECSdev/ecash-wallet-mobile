@@ -32,13 +32,17 @@ struct RootView: View {
         .preferredColorScheme(appearance == "dark" ? .dark
                               : appearance == "light" ? .light : nil)
         // Privacy cover: hides balances/addresses from the app-switcher snapshot whenever the app
-        // isn't active (covers the app-lock grace window, where the lock screen isn't shown). Kept
-        // in the hierarchy at opacity 0 and driven by `privacyCovered` — see the scenePhase handler.
+        // isn't active (covers the app-lock grace window, where the lock screen isn't shown).
+        // Rendered ONLY while covering — an always-present opacity-0 overlay with
+        // `.allowsHitTesting(false)` still swallows every touch on Compose (Android), so the app
+        // looks normal but nothing is tappable. Conditional insertion keeps the foreground fully
+        // interactive; `.transition(.opacity)` + the `withAnimation` on `.active` gives the fade-out.
         .overlay {
-            PrivacyCover()
-                .opacity(privacyCovered ? 1 : 0)
-                .allowsHitTesting(false)
-                .ignoresSafeArea()
+            if privacyCovered {
+                PrivacyCover()
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
         }
         // App-lock grace window + privacy cover, both keyed off scenePhase:
         //  • leaving the foreground (`.inactive`/`.background`) → raise the cover INSTANTLY (no

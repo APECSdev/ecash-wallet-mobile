@@ -10,23 +10,17 @@ import WalletService
 /// Share / New-address actions. Each visit reveals a fresh address (BDK advances + persists).
 struct ReceiveScreen: View {
     @Environment(AppState.self) var app
-    @Environment(\.dismiss) var dismiss
     @State var address: AddressInfo?   // not `private` — Fuse bridges @State to Compose (skip-fuse rule)
     @State var copied = false
 
     var body: some View {
-        // `.sheet` on WalletHomeScreen already presents this modally; we just wrap the content in a
-        // NavigationStack for the standard title + Done bar.
-        NavigationStack {
+        // No NavigationStack/toolbar/title: `.sheet` (from WalletHomeScreen) is swipe-down
+        // dismissible, and a toolbar renders a grey Material top app bar on Android. Edge-to-edge
+        // on `bg0`; the SIGNET badge + QR + address are self-explanatory without a title.
+        ZStack {
+            Theme.Colors.bg0.ignoresSafeArea()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.Colors.bg0)
-                .navigationTitle(Text("Receive", bundle: .module, comment: "receive screen title"))
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        ConfirmToolbarButton { dismiss() }
-                    }
-                }
         }
         // Show the current UNUSED address on appear — repeat opens do NOT advance the index
         // (every revealed index widens the address space sync must cover; advancing on each

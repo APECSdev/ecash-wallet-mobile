@@ -13,33 +13,27 @@ import WalletService
 /// `NetworkRegistry`, Golden Rule §4). Everything is `Theme` tokens; layout stays Android-safe
 /// (shallow stacks, hairline rectangles instead of `Divider`).
 struct TxDetailSheet: View {
-    @Environment(\.dismiss) var dismiss
     let tx: WalletTx
     let unitLabel: String
     let network: WalletNetwork
     @State var copied = false   // not `private` — Fuse bridges @State to Compose (skip-fuse rule)
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Theme.Colors.bg0.ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: Theme.Space.x5) {
-                        hero
-                        detailsCard
-                        txidCard
-                        explorerButton
-                    }
-                    .padding(Theme.Space.gutter)
+        // No NavigationStack/toolbar and no close button: the sheet is swipe-down dismissible, and a
+        // toolbar would render a Material top app bar on Android that tints grey on scroll. Just the
+        // content, edge-to-edge on `bg0` — clean and identical on both platforms.
+        ZStack {
+            Theme.Colors.bg0.ignoresSafeArea()
+            ScrollView {
+                VStack(spacing: Theme.Space.x5) {
+                    hero
+                    detailsCard
+                    txidCard
+                    explorerButton
                 }
-                .scrollIndicators(.hidden)
+                .padding(Theme.Space.gutter)
             }
-            .navigationTitle(Text("Transaction", bundle: .module, comment: "tx detail screen title"))
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    ConfirmToolbarButton { dismiss() }
-                }
-            }
+            .scrollIndicators(.hidden)
         }
     }
 
