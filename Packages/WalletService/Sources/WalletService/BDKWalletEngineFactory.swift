@@ -28,11 +28,8 @@ public final class BDKWalletEngineFactory: WalletEngineFactory {
     /// Directory under which each wallet's BDK SQLite chain-data file lives (one file per
     /// `walletId`). Injectable for tests; defaults to `<applicationSupport>/chaindata`.
     private let chainDataDirectory: URL
-    /// Optional Electrum endpoint override applied to every engine (test/Settings seam; `nil` = registry).
-    private let electrumURLOverride: String?
 
-    public init(chainDataDirectory: URL? = nil, electrumURLOverride: String? = nil) {
-        self.electrumURLOverride = electrumURLOverride
+    public init(chainDataDirectory: URL? = nil) {
         self.chainDataDirectory = chainDataDirectory
             ?? URL.applicationSupportDirectory.appendingPathComponent("chaindata", isDirectory: true)
     }
@@ -63,14 +60,16 @@ public final class BDKWalletEngineFactory: WalletEngineFactory {
     /// and lets all of it go out of scope immediately. First open has no persisted changeset, so
     /// `Wallet.load` throws and we fall through to the network-aware constructor; later opens reload.
     public func engine(for wallet: ManagedWallet,
+                       backendKind: String, backendURL: String, backendProxy: String?,
                        loadMnemonic: @escaping () throws -> String?) throws -> WalletEngineProtocol {
         let net = BDKSeam.network(wallet.network)
+        let backend = WalletBackend(kindRaw: backendKind, url: backendURL, socks5: backendProxy)
         do {
             // WATCH-ONLY: build from the persisted PUBLIC descriptor strings (no secrets on the
             // everyday wallet or its on-disk chain store).
             let externalDescriptor = try Descriptor(descriptor: wallet.externalDescriptor, network: net)
             let internalDescriptor = try Descriptor(descriptor: wallet.internalDescriptor, network: net)
-            let persister = try makePersister(for: wallet.id)
+            let persister = try makePersister(for: wallet.id, network: wallet.network)
             // `var` (not deferred `let`): assigning in both do/catch transpiles to a reassigned
             // Kotlin `val`, which Kotlin rejects.
             var bdkWallet: Wallet
@@ -85,7 +84,6 @@ public final class BDKWalletEngineFactory: WalletEngineFactory {
                                        persister: persister)
                 _ = try bdkWallet.persist(persister: persister)
             }
-            let endpoint = electrumURLOverride ?? NetworkRegistry.params(for: wallet.network).defaultBackend
 
             // SIGN-ON-DEMAND: the only place private keys exist, and only for the duration of one
             // signing. BDK derives the signing key from the PSBT's own BIP32 paths, so a fresh
@@ -109,30 +107,68 @@ public final class BDKWalletEngineFactory: WalletEngineFactory {
             }
 
             return WalletEngine(wallet: bdkWallet, persister: persister,
-                                network: wallet.network, electrumURL: endpoint, signPsbt: signPsbt)
+                                network: wallet.network, backend: backend, signPsbt: signPsbt)
         } catch {
             // Scrub: a BDK error string can embed key material — classify, never echo (Golden Rule §2).
             throw WalletError.mapping(rawDescription: "\(error)")
         }
     }
 
-    /// Delete the wallet's BDK SQLite store (+ `-wal`/`-shm`). Best-effort (Golden Rule §5).
+    /// Validate a backend by building the client and fetching the chain tip. Throws `.syncFailed`
+    /// on unreachable/invalid (scrubbed). Network I/O — callers run it off the main actor.
+    public func testBackend(kind: String, url: String, socks5: String?) throws {
+        let backend = WalletBackend(kindRaw: kind, url: url, socks5: socks5)
+        do {
+            switch backend.kind {
+            case .electrum:
+                let client = try ElectrumClient(url: backend.url, socks5: backend.socks5)
+                _ = try client.blockHeadersSubscribe()
+            case .esplora:
+                let client = EsploraClient(url: backend.url, proxy: backend.socks5)
+                _ = try client.getHeight()
+            }
+        } catch {
+            throw WalletError.syncFailed
+        }
+    }
+
+    /// Delete ALL of a wallet's BDK SQLite stores — every `(walletId × network)` file plus the
+    /// legacy un-namespaced one, with `-wal`/`-shm` siblings. A wallet can hold a store per network
+    /// (chain data is namespaced by network, ready for network switching — `docs/network-switching.md`),
+    /// so remove-wallet must purge them all (Golden Rule §5). Best-effort.
     public func purgeChainData(for walletId: String) {
-        let base = chainDataDirectory.appendingPathComponent("\(walletId).sqlite")
-        for suffix in ["", "-wal", "-shm"] {
-            let url = suffix.isEmpty ? base
-                : chainDataDirectory.appendingPathComponent("\(walletId).sqlite\(suffix)")
-            try? FileManager.default.removeItem(at: url)
+        let fm = FileManager.default
+        let names = (try? fm.contentsOfDirectory(atPath: chainDataDirectory.path)) ?? []
+        for name in names where name.hasPrefix("\(walletId)-") || name.hasPrefix("\(walletId).sqlite") {
+            try? fm.removeItem(at: chainDataDirectory.appendingPathComponent(name))
         }
     }
 
     // MARK: - Helpers
 
-    /// One SQLite file per wallet under `chainDataDirectory`, named by `walletId`.
-    private func makePersister(for walletId: String) throws -> Persister {
-        try FileManager.default.createDirectory(at: chainDataDirectory, withIntermediateDirectories: true)
-        let path = chainDataDirectory.appendingPathComponent("\(walletId).sqlite").path
-        return try Persister.newSqlite(path: path)
+    /// One SQLite file per `(walletId × network)` under `chainDataDirectory`, named
+    /// `<walletId>-<network>.sqlite`. Network is in the path so the same seed on two chains never
+    /// shares a store (their scriptPubKeys are identical on the testnet-class networks — mixing them
+    /// would corrupt UTXO accounting; see `docs/network-switching.md`).
+    ///
+    /// One-time migration: wallets created before the layout change have an un-namespaced
+    /// `<walletId>.sqlite`. Since each was pinned to one network, move it (and its `-wal`/`-shm`) to
+    /// the network-scoped path so existing chain data survives instead of forcing a full rescan.
+    private func makePersister(for walletId: String, network: WalletNetwork) throws -> Persister {
+        let fm = FileManager.default
+        try fm.createDirectory(at: chainDataDirectory, withIntermediateDirectories: true)
+        let scoped = chainDataDirectory.appendingPathComponent("\(walletId)-\(network.rawValue).sqlite")
+        let legacy = chainDataDirectory.appendingPathComponent("\(walletId).sqlite")
+        if !fm.fileExists(atPath: scoped.path) && fm.fileExists(atPath: legacy.path) {
+            for suffix in ["", "-wal", "-shm"] {
+                let from = chainDataDirectory.appendingPathComponent("\(walletId).sqlite\(suffix)")
+                let to = chainDataDirectory.appendingPathComponent("\(walletId)-\(network.rawValue).sqlite\(suffix)")
+                if fm.fileExists(atPath: from.path) {
+                    try? fm.moveItem(at: from, to: to)
+                }
+            }
+        }
+        return try Persister.newSqlite(path: scoped.path)
     }
 
     /// Derive the PUBLIC (watch) BIP84 descriptors for both keychains from a mnemonic.

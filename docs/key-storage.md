@@ -43,15 +43,15 @@ This is the standard mobile-wallet pattern. The consequence to accept: on an unl
 the app running, the mnemonic is readable by the app process. Mitigations are the app-lock (§5) and,
 optionally, auth-bound keys (§6).
 
-**Planned engine shape — watch-only tracking, sign-on-demand (do at the Send slice).** Only
-*signing* needs the private keys; balance/addresses/sync/history need only the **public** (xpub)
-descriptor. So the everyday `Wallet` should be built from the **public** descriptors (watch-only,
-**no mnemonic read at all**), and the mnemonic loaded → private descriptors **only to sign a send**,
-then dropped. Today `BDKWalletEngineFactory.engine(for:)` builds from the **private** descriptors,
-so the mnemonic is read on every engine construction (wallet load) and the wallet can sign for the
-whole session. Narrowing to sign-on-demand shrinks the secret's in-memory window to a few seconds
-per send and pairs naturally with the per-send gate (§5). Current code is correct, just broader than
-necessary — land this with the Send slice + its tests.
+**Engine shape — watch-only tracking, sign-on-demand (SHIPPED 2026-06-13).** Only *signing* needs
+the private keys; balance/addresses/sync/history/PSBT-build need only the **public** (xpub)
+descriptor. So the everyday `WalletEngine` is built from the **public** descriptors (watch-only,
+**no mnemonic read at all**). `BDKWalletEngineFactory` hands it a `signPsbt` closure that — only at
+send time — loads the mnemonic, builds a **transient in-memory private-descriptor `Wallet`**
+(`Persister.newInMemory()`), signs the watch-only-built PSBT (BDK re-derives keys from the PSBT's
+BIP32 paths), and drops it. The secret's in-memory window is a single signing op; it pairs with the
+per-send auth gate (§5). (Aside: a wallet whose *stored* public descriptors predate the
+master-tpub-derivation fix can't be loaded watch-only — re-import or reset it.)
 
 ## 4. Backup handling (DECIDED + shipped)
 
@@ -68,18 +68,20 @@ SkipKeychain's silent-wipe-on-restore path (`AEADBadTagException`).
 iOS needs no equivalent: `WhenUnlockedThisDeviceOnly` already excludes the item from iCloud and
 device migration.
 
-## 5. App-lock & action gates (DESIGN — not built yet; UI/hardening milestone)
+## 5. App-lock & action gates (SHIPPED)
 
-The planned protection layer (CLAUDE.md §7). Lives in the **app module** (Fuse), platform-bridged;
-gates the UI/flows, **not** the KeyStore read (which stays device-unlock readable so sync works).
+The protection layer (CLAUDE.md §7). Lives in the **app module** (Fuse), platform-bridged; gates the
+UI/flows, **not** the KeyStore read (which stays device-unlock readable so sync works).
 
-- **Launch / resume gate:** biometric-or-passcode on cold launch and on foreground after an idle
-  timeout. Settings toggle; default on. Failure → locked screen, no wallet data shown.
+- **Launch / resume gate:** biometric-or-passcode on cold launch and on foreground return, with a
+  configurable background **grace** (Settings → Auto-lock; default 10s) so a quick hop out doesn't
+  re-prompt. Settings toggle; default on. Failure → locked screen, no wallet data shown. A
+  `PrivacyCover` hides balances from the app-switcher snapshot while backgrounded.
 - **Per-action gate — reveal seed:** biometric/passcode → reveal words → confirm N random words →
   mark `isBackedUp`. **Screenshot-blocked:** `FLAG_SECURE` on Android, obscure-on-backgrounding on
   iOS.
-- **Per-action gate — send:** biometric/passcode confirm immediately before broadcast. Default on
-  (toggle in Settings). This is in addition to the explicit recipient/amount/fee/**network** review.
+- **Per-action gate — send:** biometric/passcode confirm immediately before broadcast (honors the
+  same toggle). In addition to the explicit recipient/amount/fee/**network** review.
 ### Mechanism — two complementary primitives (don't conflate them)
 
 There are **two different** auth mechanisms; we use both, for different jobs:
@@ -141,6 +143,7 @@ before eCash mainnet / real funds.
 - [x] Encryption at rest both platforms (Keychain / EncryptedSharedPreferences).
 - [x] iOS `WhenUnlockedThisDeviceOnly` (no iCloud, device-only).
 - [x] **Android backup exclusion** of the keychain prefs (§4) — shipped + build-verified.
-- [ ] **App-lock + reveal/send gates + screenshot blocking** (§5) — UI/hardening milestone.
+- [x] **Watch-only + sign-on-demand** engine (§3) — everyday engine reads no mnemonic; signing only.
+- [x] **App-lock + reveal/send gates + screenshot blocking** (§5) — incl. background grace + privacy cover.
+- [x] **Secret-scrub audit** across logs/errors/analytics (CLAUDE.md §7) — manual pass + automated no-leak test.
 - [ ] Decide on **auth-bound keys** (§6) before mainnet/funds.
-- [ ] Secret-scrub audit across logs/errors/analytics (CLAUDE.md §7) before release.

@@ -8,14 +8,16 @@ import WalletService
 /// One transaction row — shared by the Activity tab and the Home preview. Two lines:
 ///
 ///   [chip]  Received  ⟨Pending⟩        +0.00500000 sBTC
-///           Today 14:02 · 1 conf                  $0.00
+///           Today 14:02 · 1 conf                  ≈ €4.12
 ///
-/// Fiat is a $0.00 placeholder until the rate service lands; the miner fee lives on the
-/// upcoming tx-detail screen. Android (Compose) discipline still applies: shallow modifier
-/// stacks (one font + one color per Text), a single Spacer, no per-child flexible frames.
+/// `fiatText` is the precomputed fiat value for this tx (caller derives it from the price
+/// service); `nil` on networks without a price provider (testnets) → no fiat line, never a fake
+/// placeholder. The miner fee lives on the tx-detail screen. Android (Compose) discipline still
+/// applies: shallow modifier stacks (one font + one color per Text), a single Spacer.
 struct TxRow: View {
     let tx: WalletTx
     let unitLabel: String
+    var fiatText: String? = nil
 
     var body: some View {
         HStack(spacing: Theme.Space.x3) {
@@ -51,10 +53,12 @@ struct TxRow: View {
                         .font(.jbMono(11, .regular))
                         .foregroundStyle(Theme.Colors.text2)
                 }
-                // Fiat placeholder until the rate service (Settings currency) lands.
-                Text(verbatim: "$0.00")
-                    .font(.jbMono(12, .regular))
-                    .foregroundStyle(Theme.Colors.text2)
+                // Fiat value for priced networks (mainnet); absent on testnets / before a quote.
+                if let fiatText {
+                    Text(verbatim: "≈ \(fiatText)")
+                        .font(.jbMono(12, .regular))
+                        .foregroundStyle(Theme.Colors.text2)
+                }
             }
         }
     }

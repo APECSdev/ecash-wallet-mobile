@@ -17,15 +17,17 @@ import WalletService
         var callCount = 0
         var label: String?
         var network: WalletNetwork?
+        var wordCount: Int?
         var errorToThrow: Error?
     }
 
     private func makeVM() -> (CreateViewModel, Recorder) {
         let rec = Recorder()
-        let vm = CreateViewModel(create: { label, network in
+        let vm = CreateViewModel(create: { label, network, wordCount in
             rec.callCount += 1
             rec.label = label
             rec.network = network
+            rec.wordCount = wordCount
             if let error = rec.errorToThrow { throw error }
         })
         return (vm, rec)
@@ -37,7 +39,14 @@ import WalletService
         #expect(rec.callCount == 1)
         #expect(rec.label == "Wallet 1")
         #expect(rec.network == .signet)
+        #expect(rec.wordCount == 12)   // default seed length
         #expect(vm.errorMessage == nil)
+    }
+
+    @Test func submitPassesChosenWordCount() {
+        let (vm, rec) = makeVM()
+        vm.submit(label: "W", network: .signet, wordCount: 24)
+        #expect(rec.wordCount == 24)
     }
 
     @Test func walletErrorMapsToUserMessage() {

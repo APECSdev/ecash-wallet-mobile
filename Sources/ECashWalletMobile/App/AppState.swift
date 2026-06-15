@@ -43,6 +43,10 @@ final class AppState {
     /// App-lock gate (biometric/passcode on launch + foreground resume). Default ON.
     let appLock: AppLockModel
 
+    /// Fiat pricing: display currency (user setting) + the latest quote. Provider is bundled
+    /// per network (`PriceProviderRegistry`); fiat shows only for networks that have one (e.g. mainnet).
+    let price = PriceService()
+
     enum SyncState: Equatable {
         case idle
         case syncing
@@ -101,8 +105,8 @@ final class AppState {
 
     /// Create a new wallet on `network`, persist it, select it. Throws `WalletError` on failure.
     @discardableResult
-    func createWallet(label: String, network: WalletNetwork) throws -> ManagedWallet {
-        let wallet = try manager.createWallet(label: label, network: network)
+    func createWallet(label: String, network: WalletNetwork, wordCount: Int = 12) throws -> ManagedWallet {
+        let wallet = try manager.createWallet(label: label, network: network, wordCount: wordCount)
         resetPerWalletState()   // the new wallet is auto-selected; don't show the old one's numbers
         refresh()
         return wallet
@@ -124,8 +128,8 @@ final class AppState {
     /// Vend a `CreateViewModel` wired to this manager (used by the Create flow). The VM is owned by
     /// the view; capturing `self` here is safe (no retain cycle — AppState doesn't hold the VM).
     func makeCreateViewModel() -> CreateViewModel {
-        CreateViewModel(create: { label, network in
-            _ = try self.createWallet(label: label, network: network)
+        CreateViewModel(create: { label, network, wordCount in
+            _ = try self.createWallet(label: label, network: network, wordCount: wordCount)
         })
     }
 
@@ -158,8 +162,7 @@ final class AppState {
         return SendViewModel(
             balance: balance,
             unitLabel: params.unitLabel,
-            networkDisplayName: params.displayName,
-            isMainnet: wallet.network.isMainnet,
+            network: wallet.network,
             send: { address, amount, feeRate in
                 // `manager.send` is non-isolated async — broadcast runs off the main actor.
                 try await self.manager.send(walletId: id, to: address, amount: amount, feeRate: feeRate)
@@ -241,6 +244,8 @@ final class AppState {
             balance = updated
             transactions = sorted((try? manager.transactions(walletId: id)) ?? [])
             syncState = .idle
+            // Refresh fiat alongside the balance (no-op for networks without a price provider).
+            Task { await refreshPrice() }
         } catch let error as WalletError {
             // We're in a sync: surface a sync/connection-framed message. Specific, actionable
             // errors (e.g. a network mismatch) keep their own text; the generic catch-all
@@ -254,6 +259,57 @@ final class AppState {
         } catch {
             syncState = .failed(WalletError.syncFailed.userMessage)
         }
+    }
+
+    // MARK: - Fiat pricing
+
+    /// The display currency (Settings → Display currency). Setting it refetches for the selected network.
+    var fiatCurrency: FiatCurrency {
+        get { price.currency }
+        set {
+            price.currency = newValue
+            Task { await refreshPrice() }
+        }
+    }
+
+    /// Fetch the price for the selected wallet's network (no-op / clears for networks without a provider).
+    func refreshPrice() async {
+        guard let network = selectedWallet?.network else { return }
+        await price.refresh(for: network)
+    }
+
+    /// A fiat string for `sats` in the selected wallet's network, or `nil` when that network has no
+    /// price provider (testnets) or no quote yet. Guards against a stale quote across a network switch.
+    func fiatString(forSats sats: Int64) -> String? {
+        guard let network = selectedWallet?.network,
+              PriceProviderRegistry.supportsPricing(network) else { return nil }
+        return price.fiatString(forSats: sats)
+    }
+
+    // MARK: - Chain backend / custom endpoints (Settings → Network)
+
+    func backendKind(for network: WalletNetwork) -> String { manager.backendKind(for: network) }
+    func backendURL(for network: WalletNetwork) -> String { manager.backendURL(for: network) }
+    func defaultBackendURL(for network: WalletNetwork) -> String { manager.defaultBackendURL(for: network) }
+    func hasBackendOverride(for network: WalletNetwork) -> Bool { manager.hasBackendOverride(for: network) }
+    var proxy: String? { manager.proxyValue() }
+
+    // Persist + evict the cached engine. The caller re-syncs once (via `sync()`) so a save that
+    // changes both endpoint and proxy doesn't kick off overlapping syncs.
+    func setBackend(network: WalletNetwork, kind: String, url: String) {
+        manager.setBackendOverride(network: network, kind: kind, url: url)
+    }
+    func resetBackend(for network: WalletNetwork) {
+        manager.clearBackendOverride(network: network)
+    }
+    func setProxy(_ socks5: String?) {
+        manager.setProxy(socks5)
+    }
+
+    /// Validate a candidate endpoint before saving — true if the client connects + fetches the tip.
+    func testBackend(kind: String, url: String, socks5: String?) async -> Bool {
+        do { try await manager.testBackend(kind: kind, url: url, socks5: socks5); return true }
+        catch { return false }
     }
 
     /// Reveal the selected wallet's NEXT receive address (advances + persists the index) — for

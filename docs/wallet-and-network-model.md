@@ -4,6 +4,17 @@
 creation. **Revises Golden Rule §4** (network is no longer a per-wallet *pin*). Complements
 `docs/key-derivation.md` (eCash = Bitcoin params) and `docs/accounts-and-labels.md` (accounts/labels).
 
+> **AMENDED 2026-06-14 — Bitcoin mainnet is now a bundled, creatable network**, so we *do* ask the
+> network at create/import (a `NetworkSelector`, default **L2L Signet**, never auto-mainnet). The
+> "no network question at creation" stance below held only while every shipped network was
+> testnet-class (coin-type `1'`, identical addresses). Mainnet is coin-type `0'` — a distinct address
+> set that cannot be a switchable view of a testnet wallet, so it must be fixed at creation. Network
+> remains a switchable view *among the testnet-class set*. Mainnet stays badge-unmarked but carries a
+> create-time warning and an extra send confirmation (Golden Rule §6/§7). See memory
+> `bitcoin-mainnet-bundled`. The "switchable view" (switching one seed among the testnet-class
+> networks without re-import) is **planned, not built** — design + security model + risks in
+> `docs/network-switching.md`.
+
 ---
 
 ## 1. A "Wallet" = its own seed (mnemonic)

@@ -58,6 +58,29 @@ struct SettingsScreen: View {
                     Text("Dark", bundle: .module, comment: "appearance: dark mode").tag("dark")
                 }
             }
+            Section {
+                Picker("Display currency", selection: Binding(
+                    get: { app.fiatCurrency },
+                    set: { app.fiatCurrency = $0 })) {
+                    ForEach(FiatCurrency.allCases, id: \.self) { currency in
+                        Text(verbatim: currency.menuLabel).tag(currency)
+                    }
+                }
+            } header: {
+                Text("Display currency", bundle: .module, comment: "fiat currency section header")
+            } footer: {
+                Text("Fiat values appear on mainnet wallets only, priced via Bitfinex.",
+                     bundle: .module, comment: "fiat currency section explainer")
+            }
+            Section("Network") {
+                NavigationLink {
+                    NetworkSettingsScreen()
+                } label: {
+                    Text("Server & privacy", bundle: .module, comment: "settings row → custom endpoint + proxy")
+                        .textStyle(.body)
+                        .foregroundStyle(Theme.Colors.text0)
+                }
+            }
             Section("About") {
                 Text(versionString)
                     .textStyle(.sm)

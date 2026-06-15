@@ -69,7 +69,7 @@ struct WalletHomeScreen: View {
             }
 
             VStack(spacing: Theme.Space.x2) {
-                NetworkBadge(name: params.displayName, isMainnet: wallet.network.isMainnet)
+                NetworkBadge(network: wallet.network)
 
                 // Live balance with the privacy eye. JetBrains Mono is fixed-width already.
                 HStack(spacing: Theme.Space.x2) {
@@ -88,6 +88,12 @@ struct WalletHomeScreen: View {
                             .foregroundStyle(Theme.Colors.text2)
                     }
                     .buttonStyle(.plain)
+                }
+                // Fiat equivalent — only for networks with a bundled price provider (e.g. mainnet).
+                if !app.balanceHidden, let fiat = app.fiatString(forSats: app.balance.sats) {
+                    Text(verbatim: "≈ \(fiat)")
+                        .font(.jbMono(14, .regular))
+                        .foregroundStyle(Theme.Colors.text2)
                 }
                 syncStatus
             }
@@ -127,7 +133,8 @@ struct WalletHomeScreen: View {
                     Button {
                         detailTx = tx
                     } label: {
-                        TxRow(tx: tx, unitLabel: app.unitLabel)
+                        TxRow(tx: tx, unitLabel: app.unitLabel,
+                              fiatText: app.fiatString(forSats: abs(tx.netSats)))
                             .padding(.vertical, Theme.Space.x2)
                     }
                     .buttonStyle(.plain)

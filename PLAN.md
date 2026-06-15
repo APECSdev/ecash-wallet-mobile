@@ -176,8 +176,9 @@ memories.
       (genesis checkpoint), **`startSyncWithRevealedSpks` on every later sync** — a full scan's
       gap limit (20 consecutive unused) silently misses funds at high revealed indices (it hid a
       real confirmed incoming tx, 2026-06-12; fixed + verified). User-visible idle/syncing/error
-      state on Home. Default endpoint `ssl://mempool.space:40002`; factory `electrumURLOverride`
-      seam. VERIFIED live on Signet on both platforms.
+      state on Home. Default endpoint `ssl://mempool.space:40002`; per-network backend override
+      threads through the factory (`engine(…, backendKind:backendURL:backendProxy:…)`), Electrum or
+      Esplora. VERIFIED live on Signet on both platforms.
 - [x] **send** — `TxBuilder`→`Psbt`→`sign`→`broadcast`; RBF signaled by BDK default; address
       validated per network. Host-tested error paths (`.invalidAddress`, `.insufficientFunds`
       via real `CreateTxError`). **VERIFIED with REAL funded-wallet Signet broadcasts in both
@@ -203,14 +204,18 @@ it; only "New address" advances the reveal index).
 ## Vertical feature slices (each = engine + VM + UI + tests; see "Definition of done")
 
 > Order is dependency-driven. Build the manager-first multi-wallet model from the start (§4).
-> Shipped so far: 1 → 2 → 5 → 4 → 3 (all core slices; the daily-driver loop is live on Signet
-> with backup + restore complete). **Next: Slice 7 — wallet manager/switcher + labeling**
-> (per Jake, 2026-06-12), then tx detail (Slice 6 remainder).
+> Shipped: 1 → 2 → 5 → 4 → 3, plus the wallet manager/switcher (Slice 7) and the redesigned tx
+> detail with full on-chain data (Slice 6) — the daily-driver loop is live on Signet, verified on
+> real devices' simulators. **Remaining (mostly Milestone F + open items):** QR-scan for Send, fiat
+> on the tx-detail amount, full license texts, real brand tokens, signing/CI, and v2 backends (CBF +
+> embedded Tor).
 
 ### Slice 1 — Create wallet  ✅ (model: `docs/wallet-and-network-model.md`)
 - [x] **No network question** — generate seed → persist → route Home as selected wallet (dev
       wallets currently created on Signet; network switchable later; first sync on Home).
-      A "Wallet" = its own mnemonic/seed.
+      A "Wallet" = its own mnemonic/seed. **Recovery-phrase length: 12 (default) or 24 words**,
+      chosen via a segmented control on the create screen → `submit(…, wordCount:)` →
+      `Mnemonic(wordCount:)` (BDK `WORDS12`/`WORDS24`).
 - [x] CreateViewModel (state machine); persistent "not backed up" banner/nudge. *(VM unit tests
       pending an app-module test target — engine paths covered in WalletServiceTests.)*
 - [x] Create UI (Welcome → confirm → generate); wires the M0 empty state into a real first
@@ -281,8 +286,8 @@ it; only "New address" advances the reveal index).
 ### Slice 6 — Transaction history  🟡
 - [x] List (newest first, pending on top) on the Activity tab + Home preview. Row design per
       Jake's mock (2026-06-12): direction chip, title + amber Pending tag, "Today 14:02 ·
-      N conf" meta (">5 conf" collapses to "Confirmed"), recipient amount + unit, $0.00 fiat
-      placeholder (rate service TODO).
+      N conf" meta (">5 conf" collapses to "Confirmed"), recipient amount + unit. (Fiat on the
+      tx amount is still TODO — the rate service now exists; Home balance already shows fiat.)
 - [x] Detail SHEET on row tap: amount / fee / total (sends), status, time, RBF, txid with copy
       + open-in-explorer (`NetworkRegistry.explorerURL`).
 - [x] Pull-to-refresh syncs (Activity list + Home scroll; `.refreshable` → Compose pull-refresh,
@@ -309,8 +314,21 @@ it; only "New address" advances the reveal index).
       Home redesigned to the mock: no nav title, balance + eye privacy toggle, 4-circle action
       row (Swap/Buy disabled ghosts until in scope).
 - [x] App-lock toggle ("Require unlock") in Settings — see Milestone F app lock.
-- [ ] Fiat display currency (+ rate service for the $ placeholders).
-- [ ] Per-network backend endpoint overrides (Electrum/Esplora) scoped per network.
+- [x] **Fiat pricing (2026-06-14)** — `PriceProvider` protocol + `BitfinexPriceProvider` (public
+      `/v2/ticker/tBTC<FIAT>`, LAST_PRICE), bundled **per network** via `PriceProviderRegistry`
+      (Bitcoin → Bitfinex; testnets → none; eCash later). `PriceService` (@Observable) holds the
+      user's **display currency** (USD/EUR/GBP/JPY — Settings → Display currency) + latest quote and
+      converts sats→fiat (display-only). Home balance + Activity/Home tx rows show "≈ fiat" for
+      priced networks (mainnet); testnets show none (no fake placeholder). 10 host tests green.
+      Android needs `import FoundationNetworking` for URLSession (see memory). TODO: fiat on the
+      tx-detail sheet hero; periodic auto-refresh.
+- [x] Per-network **custom endpoint (2026-06-14)** — Settings → Network: pick **Electrum or Esplora**
+      + URL (Test-connection + Save + Reset), persisted (UserDefaults), resolved through
+      `WalletManager` → factory → `WalletEngine` (branches client by kind). Plus an app-level
+      **SOCKS5/Tor proxy** (passed to both clients → `.onion` + Orbot/local Tor). Verified: host
+      build + `skip export` (both platforms) + WS tests green. Inputs use `.textFieldStyle(.plain)` +
+      `fieldBoxInset()` (clean on Android). **Embedded Tor + CBF "use your own node" are v2.** Design:
+      `docs/backends-and-endpoints.md`.
 - [ ] Wallet reorder; per-wallet balance in the manager rows (needs cheap cached balances).
 - [ ] SettingsViewModel / WalletManager UI tests (app-module test target still pending).
 

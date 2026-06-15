@@ -72,7 +72,7 @@ public enum NetworkRegistry {
                 unitLabel: "sBTC",
                 defaultBackend: "tcp://node.signet.drivechain.info:50001",
                 explorerTxTemplate: "https://explorer.signet.drivechain.info/tx/{txid}",
-                displayName: "Signet")
+                displayName: "L2L Signet")
         case .regtest:
             return NetworkParams(
                 coinType: Int32(1),

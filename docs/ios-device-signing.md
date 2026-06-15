@@ -74,8 +74,24 @@ You can test on your own device with either:
   check **"Connect via network."** From then on you can Run over Wi-Fi (no cable).
 - **Free team expiry:** if the app stops launching after ~7 days, just Run again from Xcode.
 - `skip devices` lists the connected iPhone (via `devicectl`) so you can confirm it's seen.
-- `skip app launch` still targets the **simulator** — for the physical device, run from Xcode
-  (or `xcodebuild`/`devicectl` against the device once signing is set up).
+- `skip app launch` still targets the **simulator** — for the physical device, run from Xcode or
+  use **`scripts/run-ios-device.sh`** (auto-detects the connected device, builds with the Android
+  leg disabled, then installs + launches via `xcodebuild` → `xcrun devicectl`).
+
+## Team ID is not committed (set it locally)
+
+`DEVELOPMENT_TEAM` was removed from the committed project (open-source repo) and moved to a
+**gitignored** `Darwin/DeveloperSettings.xcconfig`, which the main xcconfig pulls in via `#include?`.
+Set yours once and Xcode / `xcodebuild` / fastlane all sign normally:
+
+```bash
+cp Darwin/DeveloperSettings.xcconfig.example Darwin/DeveloperSettings.xcconfig
+# edit: DEVELOPMENT_TEAM = <your team id>
+```
+
+Without this file, device builds fail with "Signing requires a development team" (simulator/Android
+don't need it). Selecting a team in Xcode's Signing UI also works, but writes it back into the
+`.pbxproj` — prefer the xcconfig file so the team stays out of source.
 
 ## TestFlight / other testers (later)
 

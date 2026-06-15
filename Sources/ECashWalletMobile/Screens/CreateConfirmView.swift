@@ -13,6 +13,8 @@ import WalletService
 struct CreateConfirmView: View {
     let defaultName: String
     @State var vm: CreateViewModel   // not `private` — Fuse bridges @State to Compose (skip-fuse rule)
+    @State var wordCount = 12        // recovery-phrase length (12 default; 24 offered)
+    @State var network: WalletNetwork = .signet   // default to a testnet-class net; mainnet is deliberate
 
     init(viewModel: CreateViewModel, defaultName: String) {
         self.defaultName = defaultName
@@ -26,8 +28,8 @@ struct CreateConfirmView: View {
             VStack(alignment: .leading, spacing: Theme.Space.x5) {
                 Spacer()
 
-                // Network identity, up front and unmistakable (Golden Rule §6).
-                NetworkBadge(name: "Signet", isMainnet: false)
+                // Network is chosen up front (it fixes the address set) and unmistakable (Golden Rule §4/§6).
+                NetworkSelector(network: $network)
 
                 Text("Your keys, your coins", bundle: .module, comment: "create wallet heading")
                     .textStyle(.h1)
@@ -37,6 +39,22 @@ struct CreateConfirmView: View {
                      bundle: .module, comment: "create wallet self-custody explainer")
                     .textStyle(.body)
                     .foregroundStyle(Theme.Colors.text1)
+
+                // Recovery-phrase length. 12 is plenty for most wallets; 24 adds entropy.
+                VStack(alignment: .leading, spacing: Theme.Space.x2) {
+                    Text("Recovery phrase length", bundle: .module, comment: "create: seed length label")
+                        .textStyle(.overline)
+                        .foregroundStyle(Theme.Colors.text2)
+                    Picker("Recovery phrase length", selection: $wordCount) {
+                        Text("12 words", bundle: .module, comment: "create: 12-word seed").tag(12)
+                        Text("24 words", bundle: .module, comment: "create: 24-word seed").tag(24)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("12 words is plenty for most wallets. 24 adds extra entropy — more to write down.",
+                         bundle: .module, comment: "create: seed length explainer")
+                        .textStyle(.xs)
+                        .foregroundStyle(Theme.Colors.text2)
+                }
 
                 if let error = vm.errorMessage {
                     Text(error)
@@ -50,7 +68,7 @@ struct CreateConfirmView: View {
                 WalletButton(title: vm.isCreating
                                 ? "Creating…"
                                 : "Continue") {
-                    vm.submit(label: defaultName, network: .signet)
+                    vm.submit(label: defaultName, network: network, wordCount: wordCount)
                 }
                 .disabled(vm.isCreating)
                 .opacity(vm.isCreating ? 0.6 : 1)

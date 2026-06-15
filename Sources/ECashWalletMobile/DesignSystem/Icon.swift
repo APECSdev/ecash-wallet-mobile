@@ -70,11 +70,12 @@ extension Image {
         self.init(name, bundle: .module)
     }
 
-    /// Tab-bar icon sizing. Material Symbol images render oversized in Compose's
-    /// NavigationBar, so on Android we shrink them; iOS sizes tab icons natively.
+    /// Tab-bar icon sizing. Material Symbol images render oversized in Compose's NavigationBar and
+    /// crowd the selected-item pill indicator, so on Android we shrink them for breathing room inside
+    /// the pill; iOS sizes tab icons natively.
     func tabSized() -> some View {
         #if os(Android)
-        self.resizable().scaledToFit().frame(width: 16, height: 16)
+        self.resizable().scaledToFit().frame(width: 12, height: 12)
         #else
         self
         #endif

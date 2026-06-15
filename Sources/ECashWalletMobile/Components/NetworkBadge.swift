@@ -3,37 +3,33 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import SwiftUI
+import WalletService
 
-/// The persistent network-identity chip — a safety primitive, not decoration (Golden Rule
-/// §2.6): a non-mainnet wallet must be unmistakable on every money-touching surface (home,
-/// send review, receive, history, wallet switcher).
+/// The persistent network-identity chip — a safety primitive, not decoration (Golden Rule §6): a
+/// wallet's network must be unmistakable on every money-touching surface (home, send review,
+/// receive, history, wallet switcher).
 ///
-/// Mainnet is the unmarked default (reconciliation) — the badge renders nothing
-/// for it. Non-mainnet shows a solid, high-contrast violet chip with the network name, chosen
-/// to be impossible to confuse with the brand accent / positive / negative colors.
-///
-/// Presentational only: it takes a display name + a mainnet flag, so it has no dependency on
-/// WalletService and stays trivially previewable. Callers that hold a `WalletNetwork` pass
-/// `NetworkRegistry.params(for:).displayName` and `network.isMainnet` (wired in Slice 1/2).
+/// **Every** network shows a chip, each in its own color (`NetworkChipStyle`, a code-level config) —
+/// testnets in high-contrast violet, **Bitcoin mainnet in its real orange**. The name + colors
+/// resolve from the `WalletNetwork` (name via `NetworkRegistry`).
 struct NetworkBadge: View {
-    /// The network's display name, e.g. "Testnet4". Rendered uppercased.
-    let name: String
-    /// Mainnet is unmarked — pass `true` to render no badge.
-    let isMainnet: Bool
+    private let name: String
+    private let style: NetworkChipStyle
+
+    init(network: WalletNetwork) {
+        self.name = NetworkRegistry.params(for: network).displayName
+        self.style = NetworkChipStyle.style(for: network)
+    }
 
     var body: some View {
-        if isMainnet {
-            EmptyView()
-        } else {
-            Text(verbatim: name)   // network display name (proper noun, from NetworkRegistry)
-                .textStyle(.overline) // uppercased + tracked
-                .foregroundStyle(Theme.Colors.netTestnetText)
-                .padding(.horizontal, Theme.Space.x3)
-                .padding(.vertical, Theme.Space.x1)
-                .background(Theme.Colors.netTestnet, in: Capsule())
-                .accessibilityLabel(Text("\(name) network",
-                                         bundle: .module,
-                                         comment: "Network badge accessibility label"))
-        }
+        Text(verbatim: name)   // network display name (proper noun, from NetworkRegistry)
+            .textStyle(.overline) // uppercased + tracked
+            .foregroundStyle(style.foreground)
+            .padding(.horizontal, Theme.Space.x3)
+            .padding(.vertical, Theme.Space.x1)
+            .background(style.background, in: Capsule())
+            .accessibilityLabel(Text("\(name) network",
+                                     bundle: .module,
+                                     comment: "Network badge accessibility label"))
     }
 }

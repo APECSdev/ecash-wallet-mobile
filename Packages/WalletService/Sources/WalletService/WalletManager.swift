@@ -167,9 +167,84 @@ public final class WalletManager: @unchecked Sendable {
         // through this closure (sign-on-demand, §7 / docs/key-storage.md §3).
         let keyStore = self.keyStore
         let walletId = wallet.id
-        return try factory.engine(for: wallet, loadMnemonic: {
-            try keyStore.loadMnemonic(walletId: walletId)
-        })
+        let backend = resolvedBackend(for: wallet.network)
+        return try factory.engine(for: wallet,
+                                  backendKind: backend.kind.rawValue,
+                                  backendURL: backend.url,
+                                  backendProxy: backend.socks5,
+                                  loadMnemonic: { try keyStore.loadMnemonic(walletId: walletId) })
+    }
+
+    // MARK: - Chain backend & custom endpoints (bridged primitive surface)
+    //
+    // Config lives in UserDefaults (read on demand — no in-memory copy to drift); the app's
+    // Settings UI drives it through these String-based methods (no `WalletBackend` on the bridge).
+    // A SOCKS5 proxy is global (applies to whichever client an engine builds → Tor / `.onion`).
+    // Changing any of this evicts cached engines so the next sync rebuilds. See
+    // `docs/backends-and-endpoints.md`.
+
+    private static let proxyKey = "backend.socks5"
+    private func kindKey(_ n: WalletNetwork) -> String { "backend.\(n.rawValue).kind" }
+    private func urlKey(_ n: WalletNetwork) -> String { "backend.\(n.rawValue).url" }
+
+    private func trimmedOrNil(_ s: String?) -> String? {
+        guard let s = s?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+        return s
+    }
+
+    /// The effective backend for a network: user override if set, else the registry default
+    /// (Electrum); the global SOCKS5 proxy is applied on top. Used when building an engine.
+    func resolvedBackend(for network: WalletNetwork) -> WalletBackend {
+        let defaults = UserDefaults.standard
+        let proxy = trimmedOrNil(defaults.string(forKey: Self.proxyKey))
+        if let url = trimmedOrNil(defaults.string(forKey: urlKey(network))),
+           let kind = WalletBackend.Kind(rawValue: defaults.string(forKey: kindKey(network)) ?? "") {
+            return WalletBackend(kind: kind, url: url, socks5: proxy)
+        }
+        let defaultURL = NetworkRegistry.params(for: network).defaultBackend
+        return WalletBackend(kind: .electrum, url: defaultURL, socks5: proxy)
+    }
+
+    /// Set a per-network custom endpoint. `kind` is `"electrum"`/`"esplora"`.
+    public func setBackendOverride(network: WalletNetwork, kind: String, url: String) {
+        let defaults = UserDefaults.standard
+        defaults.set(kind, forKey: kindKey(network))
+        defaults.set(url, forKey: urlKey(network))
+        engines.removeAll()
+    }
+
+    /// Revert a network to its registry default endpoint.
+    public func clearBackendOverride(network: WalletNetwork) {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: kindKey(network))
+        defaults.removeObject(forKey: urlKey(network))
+        engines.removeAll()
+    }
+
+    /// Set (or clear, with nil/empty) the global SOCKS5 proxy `host:port`.
+    public func setProxy(_ socks5: String?) {
+        let defaults = UserDefaults.standard
+        if let value = trimmedOrNil(socks5) {
+            defaults.set(value, forKey: Self.proxyKey)
+        } else {
+            defaults.removeObject(forKey: Self.proxyKey)
+        }
+        engines.removeAll()
+    }
+
+    // Getters for the Settings UI:
+    public func backendKind(for network: WalletNetwork) -> String { resolvedBackend(for: network).kind.rawValue }
+    public func backendURL(for network: WalletNetwork) -> String { resolvedBackend(for: network).url }
+    public func defaultBackendURL(for network: WalletNetwork) -> String { NetworkRegistry.params(for: network).defaultBackend }
+    public func hasBackendOverride(for network: WalletNetwork) -> Bool {
+        trimmedOrNil(UserDefaults.standard.string(forKey: urlKey(network))) != nil
+    }
+    public func proxyValue() -> String? { trimmedOrNil(UserDefaults.standard.string(forKey: Self.proxyKey)) }
+
+    /// Validate a candidate backend (build client + fetch tip). Throws on failure. Network I/O —
+    /// `async` so the call site awaits it off the main actor.
+    public func testBackend(kind: String, url: String, socks5: String?) async throws {
+        try factory.testBackend(kind: kind, url: url, socks5: trimmedOrNil(socks5))
     }
 
     /// Get-or-build the cached live engine for a walletId (see `engines`).

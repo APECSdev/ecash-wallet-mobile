@@ -42,8 +42,7 @@ import WalletService
         let vm = SendViewModel(
             balance: Amount(sats: balanceSats),
             unitLabel: "sBTC",
-            networkDisplayName: "Signet",
-            isMainnet: false,
+            network: .signet,
             send: { address, amount, feeRate in
                 rec.callCount += 1
                 rec.address = address

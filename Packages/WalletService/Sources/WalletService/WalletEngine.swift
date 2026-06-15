@@ -92,19 +92,19 @@ public final class WalletEngine: WalletEngineProtocol {
     private let persister: Persister
     /// The Electrum backend URL for this wallet's network (resolved by the factory from
     /// `NetworkRegistry`, so the engine never hardcodes a network/endpoint — Golden Rule §4).
-    private let electrumURL: String
+    private let backend: WalletBackend
     /// Signs a PSBT on demand by materializing the secret key transiently (factory-supplied).
     /// Returns whether the PSBT is finalized. The only path that touches private key material.
     private let signPsbt: (Psbt) throws -> Bool
 
     /// Internal: only the factory (same module) builds this; the app sees `WalletEngineProtocol`.
     /// Kept non-public so the bridge never sees the BDK-typed parameters.
-    init(wallet: Wallet, persister: Persister, network: WalletNetwork, electrumURL: String,
+    init(wallet: Wallet, persister: Persister, network: WalletNetwork, backend: WalletBackend,
          signPsbt: @escaping (Psbt) throws -> Bool) {
         self.wallet = wallet
         self.persister = persister
         self.network = network
-        self.electrumURL = electrumURL
+        self.backend = backend
         self.signPsbt = signPsbt
     }
 
@@ -260,8 +260,14 @@ public final class WalletEngine: WalletEngineProtocol {
             throw WalletError.signingFailed
         }
         do {
-            let client = try ElectrumClient(url: electrumURL)
-            _ = try client.transactionBroadcast(tx: tx)
+            switch backend.kind {
+            case .electrum:
+                let client = try ElectrumClient(url: backend.url, socks5: backend.socks5)
+                _ = try client.transactionBroadcast(tx: tx)
+            case .esplora:
+                let client = EsploraClient(url: backend.url, proxy: backend.socks5)
+                try client.broadcast(transaction: tx)
+            }
         } catch {
             // Known context: a broadcast/network failure. (The tx is signed/valid; this is transport.)
             throw WalletError.broadcastFailed
@@ -298,22 +304,37 @@ public final class WalletEngine: WalletEngineProtocol {
     /// actor. It's `async` so the call site can `await` it on a background task.
     public func sync() async throws {
         do {
-            let client = try ElectrumClient(url: electrumURL)
-            if wallet.latestCheckpoint().height == UInt32(0) {
-                // Fresh wallet (genesis checkpoint only): discover history with a full scan.
-                let request = try wallet.startFullScan().build()
-                let update = try client.fullScan(request: request,
-                                                 stopGap: UInt64(20),
-                                                 batchSize: UInt64(10),
+            // Fresh wallet (genesis checkpoint only) → full scan (gap limit 20); else revealed-spks
+            // sync (no gap-limit blind spots). Branch by backend type — the two BDK clients have
+            // different scan/sync signatures (Electrum: batchSize+fetchPrevTxouts; Esplora:
+            // parallelRequests). Both take an optional SOCKS5/proxy for Tor.
+            let isFresh = wallet.latestCheckpoint().height == UInt32(0)
+            switch backend.kind {
+            case .electrum:
+                let client = try ElectrumClient(url: backend.url, socks5: backend.socks5)
+                if isFresh {
+                    let request = try wallet.startFullScan().build()
+                    let update = try client.fullScan(request: request, stopGap: UInt64(20),
+                                                     batchSize: UInt64(10), fetchPrevTxouts: true)
+                    try wallet.applyUpdate(update: update)
+                } else {
+                    let request = try wallet.startSyncWithRevealedSpks().build()
+                    let update = try client.sync(request: request, batchSize: UInt64(10),
                                                  fetchPrevTxouts: true)
-                try wallet.applyUpdate(update: update)
-            } else {
-                // Synced before: check every revealed script (no gap-limit blind spots).
-                let request = try wallet.startSyncWithRevealedSpks().build()
-                let update = try client.sync(request: request,
-                                             batchSize: UInt64(10),
-                                             fetchPrevTxouts: true)
-                try wallet.applyUpdate(update: update)
+                    try wallet.applyUpdate(update: update)
+                }
+            case .esplora:
+                let client = EsploraClient(url: backend.url, proxy: backend.socks5)
+                if isFresh {
+                    let request = try wallet.startFullScan().build()
+                    let update = try client.fullScan(request: request, stopGap: UInt64(20),
+                                                     parallelRequests: UInt64(4))
+                    try wallet.applyUpdate(update: update)
+                } else {
+                    let request = try wallet.startSyncWithRevealedSpks().build()
+                    let update = try client.sync(request: request, parallelRequests: UInt64(4))
+                    try wallet.applyUpdate(update: update)
+                }
             }
             _ = try wallet.persist(persister: persister)
         } catch {

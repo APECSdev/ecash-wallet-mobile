@@ -16,6 +16,7 @@ struct ImportWalletView: View {
     let defaultName: String
     @State var vm: ImportViewModel   // not `private` — Fuse bridges @State to Compose (skip-fuse rule)
     @State var walletName = ""
+    @State var network: WalletNetwork = .signet   // default to a testnet-class net; mainnet is deliberate
 
     init(viewModel: ImportViewModel, defaultName: String) {
         self.defaultName = defaultName
@@ -27,8 +28,8 @@ struct ImportWalletView: View {
             Theme.Colors.bg0.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: Theme.Space.x4) {
-                // Network identity, up front and unmistakable (Golden Rule §6).
-                NetworkBadge(name: "Signet", isMainnet: false)
+                // Network is chosen up front (it fixes the address set) and unmistakable (Golden Rule §4/§6).
+                NetworkSelector(network: $network)
 
                 Text("Restore from recovery phrase", bundle: .module, comment: "import wallet heading")
                     .textStyle(.h1)
@@ -82,7 +83,7 @@ struct ImportWalletView: View {
                                 : "Import wallet") {
                     let trimmed = walletName.trimmingCharacters(in: .whitespacesAndNewlines)
                     vm.submit(label: trimmed.isEmpty ? defaultName : String(trimmed.prefix(24)),
-                              network: .signet)
+                              network: network)
                 }
                 .disabled(!vm.canSubmit)
                 .opacity(vm.canSubmit ? 1 : 0.4)

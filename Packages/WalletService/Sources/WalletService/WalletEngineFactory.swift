@@ -40,8 +40,15 @@ public protocol WalletEngineFactory: AnyObject {
     /// Build the live WATCH-ONLY engine for a wallet from its PUBLIC descriptors — no private
     /// keys are held. `loadMnemonic` is invoked ONLY when signing a send (sign-on-demand, §7 /
     /// `docs/key-storage.md §3`); its result builds a transient signer that is dropped right after.
+    /// `backendKind` is `"electrum"`/`"esplora"`; `backendURL` the server; `backendProxy` an
+    /// optional SOCKS5 `host:port`. (Primitives, not `WalletBackend`, so the public protocol stays
+    /// off the bridge — see `WalletBackend`.)
     func engine(for wallet: ManagedWallet,
+                backendKind: String, backendURL: String, backendProxy: String?,
                 loadMnemonic: @escaping () throws -> String?) throws -> WalletEngineProtocol
+    /// Probe a backend (build the client + fetch the chain tip) so Settings can validate a custom
+    /// endpoint before saving. Throws on unreachable/invalid; does network I/O (call off main).
+    func testBackend(kind: String, url: String, socks5: String?) throws
     /// Purge the wallet's BDK chain-data store (the factory owns it; the manager can't reach it).
     /// Best-effort: a failed delete must not block wallet removal — the secret is gone first.
     /// Called by `WalletManager.removeWallet` so removal purges EVERY keyed artifact (Golden Rule §5).
@@ -76,8 +83,17 @@ public final class MockWalletEngineFactory: WalletEngineFactory {
     }
 
     public func engine(for wallet: ManagedWallet,
+                       backendKind: String, backendURL: String, backendProxy: String?,
                        loadMnemonic: @escaping () throws -> String?) throws -> WalletEngineProtocol {
         MockWalletEngine(network: wallet.network)
+    }
+
+    /// Records the last-tested endpoint URL; succeeds unless `failTestBackend` is set (tests).
+    public private(set) var lastTestedURL: String?
+    public var failTestBackend = false
+    public func testBackend(kind: String, url: String, socks5: String?) throws {
+        lastTestedURL = url
+        if failTestBackend { throw WalletError.syncFailed }
     }
 
     public func purgeChainData(for walletId: String) {

@@ -50,6 +50,7 @@ final class SendViewModel {
     // Wallet context, fixed at presentation time (the Send sheet is per-selected-wallet).
     let balance: Amount
     let unitLabel: String
+    let network: WalletNetwork
     let networkDisplayName: String
     let isMainnet: Bool
 
@@ -72,15 +73,15 @@ final class SendViewModel {
 
     init(balance: Amount,
          unitLabel: String,
-         networkDisplayName: String,
-         isMainnet: Bool,
+         network: WalletNetwork,
          send: @escaping (_ address: String, _ amount: Amount, _ feeRate: FeeRate) async throws -> WalletTx,
          onSent: @escaping @MainActor (WalletTx) -> Void,
          authorize: @escaping (String) async -> Bool) {
         self.balance = balance
         self.unitLabel = unitLabel
-        self.networkDisplayName = networkDisplayName
-        self.isMainnet = isMainnet
+        self.network = network
+        self.networkDisplayName = NetworkRegistry.params(for: network).displayName
+        self.isMainnet = network.isMainnet
         self.send = send
         self.onSent = onSent
         self.authorize = authorize

@@ -19,6 +19,7 @@ struct SendScreen: View {
     @Environment(\.dismiss) var dismiss
     @State var vm: SendViewModel   // not `private` — Fuse bridges @State (skip-fuse rule)
     @State var path: [SendRoute] = []
+    @State var showMainnetConfirm = false   // extra explicit gate for real-money sends (Golden Rule §6/§7)
 
     init(viewModel: SendViewModel) {
         _vm = State(initialValue: viewModel)
@@ -58,7 +59,7 @@ struct SendScreen: View {
         ZStack {
             Theme.Colors.bg0.ignoresSafeArea()
             VStack(spacing: Theme.Space.x4) {
-                NetworkBadge(name: vm.networkDisplayName, isMainnet: vm.isMainnet)
+                NetworkBadge(network: vm.network)
 
                 Text("Who are you paying?", bundle: .module, comment: "send recipient prompt")
                     .textStyle(.sm)
@@ -94,7 +95,7 @@ struct SendScreen: View {
 
     private var amountStep: some View {
         VStack(spacing: Theme.Space.x4) {
-            NetworkBadge(name: vm.networkDisplayName, isMainnet: vm.isMainnet)
+            NetworkBadge(network: vm.network)
 
             Text("To \(Self.shortAddress(vm.reviewAddress))", bundle: .module, comment: "send amount recipient recap; %@ is a shortened address")
                 .font(.jbMono(13, .regular))
@@ -173,7 +174,7 @@ struct SendScreen: View {
 
     private var review: some View {
         VStack(spacing: Theme.Space.x5) {
-            NetworkBadge(name: vm.networkDisplayName, isMainnet: vm.isMainnet)
+            NetworkBadge(network: vm.network)
 
             VStack(spacing: Theme.Space.x1) {
                 Text(vm.reviewAmount.formattedCoin())
@@ -201,13 +202,42 @@ struct SendScreen: View {
                     .stroke(Theme.Colors.border, lineWidth: 1)
             )
 
+            // Real-money sends carry an extra, visible warning on top of the auth gate.
+            if vm.isMainnet {
+                Text("Real bitcoin — this transaction is irreversible.",
+                     bundle: .module, comment: "mainnet send warning")
+                    .textStyle(.sm)
+                    .foregroundStyle(Theme.Colors.warning)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             Spacer()
 
             WalletButton(title: "Confirm send") {
-                Task { await vm.confirmSend() }
+                // Mainnet gets a second, explicit confirmation before broadcast (Golden Rule §6/§7);
+                // testnet-class networks send straight through the existing auth gate.
+                if vm.isMainnet {
+                    showMainnetConfirm = true
+                } else {
+                    Task { await vm.confirmSend() }
+                }
             }
         }
         .padding(Theme.Space.gutter)
+        .alert(Text("Send real bitcoin?", bundle: .module, comment: "mainnet send confirmation title"),
+               isPresented: $showMainnetConfirm) {
+            Button(role: .cancel) { } label: {
+                Text("Cancel", bundle: .module, comment: "cancel mainnet send")
+            }
+            Button(role: .destructive) {
+                Task { await vm.confirmSend() }
+            } label: {
+                Text("Send", bundle: .module, comment: "confirm mainnet send")
+            }
+        } message: {
+            Text("This sends real bitcoin on \(vm.networkDisplayName). It cannot be undone.",
+                 bundle: .module, comment: "mainnet send confirmation body; %@ is the network name")
+        }
     }
 
     private func reviewRow(label: LocalizedStringKey, value: String) -> some View {

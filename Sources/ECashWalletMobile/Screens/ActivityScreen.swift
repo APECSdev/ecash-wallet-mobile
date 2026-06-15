@@ -26,7 +26,8 @@ struct ActivityScreen: View {
                         Button {
                             detailTx = tx
                         } label: {
-                            TxRow(tx: tx, unitLabel: app.unitLabel)
+                            TxRow(tx: tx, unitLabel: app.unitLabel,
+                                  fiatText: app.fiatString(forSats: abs(tx.netSats)))
                         }
                         .buttonStyle(.plain)
                     }

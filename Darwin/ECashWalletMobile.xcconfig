@@ -1,4 +1,7 @@
 #include "../Skip.env"
+// Local, gitignored signing (DEVELOPMENT_TEAM) — optional so the public repo builds without it.
+// Copy DeveloperSettings.xcconfig.example → DeveloperSettings.xcconfig and set your Team ID.
+#include? "DeveloperSettings.xcconfig"
 
 // Set the action that will be executed as part of the Xcode Run Script phase
 // Setting to "launch" will build and run the app in the first open Android emulator or device
@@ -18,6 +21,11 @@ GENERATE_INFOPLIST_FILE = YES
 // the Swift module name (ECashWalletMobile).
 INFOPLIST_KEY_CFBundleDisplayName = eCash.com
 //INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.utilities
+
+// Face ID usage string. REQUIRED for LocalAuthentication to offer biometrics — without it iOS
+// silently refuses Face ID and drops straight to the device passcode (the symptom we saw). The app
+// still falls back to passcode gracefully via the `.deviceOwnerAuthentication` policy.
+INFOPLIST_KEY_NSFaceIDUsageDescription = Unlock the app and confirm sending funds with Face ID.
 
 // iOS-specific Info.plist property keys
 INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphone*] = YES

@@ -3,7 +3,7 @@
 > Project bible for Claude (and humans). Read this fully before writing or changing code.
 > Keep it current: when an architectural decision changes, update this file in the same PR.
 >
-> **Product name:** eCash.com Wallet (the `.com` is part of the name).
+> **Product name:** eCash.com Wallet (the `.com` is part of the name). The **home-screen/launcher label** is the shortened **eCash.com** (`CFBundleDisplayName` / `android:label`); the in-app name stays the full **eCash.com Wallet**.
 > **Code identifiers:** `EcashWallet*` for modules/types (no dots in identifiers); use the full display name only in UI strings, app name, and store listings.
 
 ---
@@ -15,9 +15,9 @@ A native mobile Bitcoin wallet — **eCash.com Wallet** — for **eCash**, the L
 **v1 scope (this milestone):** the fundamentals, **multi-wallet and multi-network from day one**.
 
 - **Manage multiple wallets** — add, switch, rename, remove; **each wallet is its own seed** (its own mnemonic), independent (§4 / `docs/wallet-and-network-model.md`).
-- **Network is a switchable view, not a per-wallet pin** — new wallets default to **Testnet4**; the user switches network in-wallet. Near-term networks: **Testnet4, eCash-testnet, eCash-signet** (all testnet-class, shared keys). **eCash mainnet** added later (design the network layer to absorb it now — see §4).
-- Create wallet (generate seed → Home on Testnet4; **no network question at creation**)
-- Import wallet (restore from seed / descriptor)
+- **Network is chosen at creation** (new wallets default to **L2L Signet**), then switchable among the testnet-class set. Bundled networks: **Bitcoin mainnet** (coin-type `0'`, real money, creatable), **Testnet4**, **L2L Signet**, **regtest** (all testnet-class, coin-type `1'`, shared keys), plus **eCash-testnet/signet/mainnet** added later (design the network layer to absorb them now — see §4).
+- Create wallet (generate seed → pick network — **defaults to L2L Signet**, never auto-mainnet — → Home)
+- Import wallet (restore from seed / descriptor; same network picker)
 - Backup wallet (reveal + verify seed) — per wallet
 - Receive (addresses + QR)
 - Send (build, sign, broadcast)
@@ -39,9 +39,9 @@ A native mobile Bitcoin wallet — **eCash.com Wallet** — for **eCash**, the L
 1. **BDK owns all key material and consensus logic.** Never hand-roll key derivation, signing, address generation, PSBT building, coin selection, or fee math. If BDK exposes it, use BDK.
 2. **Seed/private keys never leave the secure store and never get logged.** No seed, xprv, or descriptor-with-private-keys in logs, analytics, crash reports, screenshots, or error messages. Mnemonics live in the OS secure enclave (see §7).
 3. **The BDK seam is the only place with platform `#if`.** All `#if os(Android)` / `#else` branching for BDK lives in the `WalletService` module wrapper. UI and view models stay platform-agnostic Swift.
-4. **A wallet is a seed; network is a switchable VIEW of it** (REVISED 2026-06-12 — see `docs/wallet-and-network-model.md`). "Create wallet" generates a new mnemonic; multiple wallets = multiple independent seeds. A wallet is **not** pinned to one network: the user picks/switches which network they view (default **Testnet4**), and we do **not** ask "which network?" at creation. The three dev networks (Testnet4, eCash-testnet, eCash-signet) are all testnet-class (**coin-type `1'`, HRP `tb`**), so one mnemonic yields the **identical** addresses on all three — only the backend/chain differs; one descriptor set serves all three, with isolated balance/history per (wallet × network). (eCash *mainnet*, later, is coin-type `0'` — different addresses, real money, deliberate/weighty.) All network details (chain params, coin-type, backend, explorer, HRP, unit label) still resolve through one **`NetworkRegistry`** — never hardcoded.
+4. **A wallet is a seed; network is chosen at creation, switchable among the testnet-class set** (REVISED 2026-06-14 — see `docs/wallet-and-network-model.md`). "Create wallet" generates a new mnemonic; multiple wallets = multiple independent seeds. The network **is** chosen at create/import (picker defaults to **L2L Signet**, never auto-mainnet) because **Bitcoin mainnet is coin-type `0'`** — a distinct address set, so it can't be a switchable view of a testnet wallet. The testnet-class networks (Testnet4, L2L Signet, regtest, future eCash-testnet/signet) are all **coin-type `1'`, HRP `tb`**, so one mnemonic yields the **identical** addresses across them — among those, network stays a switchable view (only backend/chain differs; one descriptor set serves all; isolated balance/history per (wallet × network)). Mainnet (`0'`) is real money — deliberate (extra send confirmation, real-money warnings; marked with its own **Bitcoin-orange** chip, §6). All network details resolve through one **`NetworkRegistry`** — never hardcoded.
 5. **Wallets are isolated.** Every wallet's keys, descriptors, addresses, UTXOs, transactions, and BDK chain data are namespaced by a stable `walletId`. Never mix data across wallets or networks. Removing a wallet purges all of its data.
-6. **Testnet must be unmistakable from mainnet.** At every money-touching surface (home balance, send review, receive, history, wallet switcher) a non-mainnet wallet shows a persistent, high-contrast network badge. A user must never be able to confuse a testnet wallet with a mainnet one. Never auto-select mainnet for a destructive/irreversible action without explicit network confirmation.
+6. **Every network must be unmistakable.** At every money-touching surface (home balance, send review, receive, history, wallet switcher) a wallet shows a persistent, high-contrast network chip **in its network's own color** — testnets in violet, **Bitcoin mainnet in its real orange** (`NetworkChipStyle`, a code-level per-network config). A user must never confuse a testnet wallet with a mainnet one. Never auto-select mainnet for a destructive/irreversible action without explicit network confirmation.
 7. **Don't broadcast without explicit user confirmation** of recipient, amount, fee, **and network**.
 8. **Fail loud in dev, fail safe in prod.** Surface BDK errors to the user as actionable messages; never silently swallow a signing or broadcast failure.
 
@@ -101,9 +101,9 @@ ecash-wallet-mobile/
 │     └─ Sources/WalletService/
 │        ├─ Skip/skip.yml      # mode: 'transpiled' + bridging:true (Fuse app forwards via JNI); injects bdk-android Gradle dep
 │        ├─ WalletEngine.swift # per-wallet: create/import, sync, balance, build/sign/broadcast (+ #if seam)
-│        ├─ WalletManager.swift   # owns the set of wallets + the selected wallet; lifecycle [TODO]
+│        ├─ WalletManager.swift   # owns the set of wallets + the selected wallet; vends engines
 │        ├─ NetworkRegistry.swift # WalletNetwork -> params, coin-type, backend, explorer, unit
-│        ├─ KeyStore.swift        # per-walletId mnemonic persistence via SkipKeychain [TODO]
+│        ├─ KeyStore.swift        # per-walletId mnemonic persistence via SkipKeychain
 │        ├─ WalletStore.swift     # JSON FileWalletStore: per-walletId PUBLIC metadata, CRUD + purge (BDK owns chain data)
 │        ├─ Descriptors.swift     # network-aware descriptor templates (BIP84; coin-type 0'/1')
 │        ├─ WalletError.swift     # typed, secret-scrubbed errors -> user strings
@@ -112,7 +112,7 @@ ecash-wallet-mobile/
 └─ Darwin/                # iOS app target
 ```
 
-> Reality note: the v1 scaffold uses a single Fuse app module (`ECashWalletMobile`) rather than the original `EcashWalletModel`/`EcashWalletUI`/`EcashWalletApp` split, because a Fuse app is one native module (§5). The Model/UI/App separation is enforced by convention/folders within that module. Only `WalletService` is a separate (transpiled) package. `WalletManager`/`KeyStore`/`WalletStore` are not built yet.
+> Reality note: the v1 scaffold uses a single Fuse app module (`ECashWalletMobile`) rather than the original `EcashWalletModel`/`EcashWalletUI`/`EcashWalletApp` split, because a Fuse app is one native module (§5). The Model/UI/App separation is enforced by convention/folders within that module. Only `WalletService` is a separate (transpiled) package. `WalletManager`/`KeyStore`/`WalletStore` are built and in use.
 
 **Dependency direction:** `App → UI → Model → WalletService`. Nothing depends upward. WalletService knows nothing about SwiftUI.
 
@@ -214,7 +214,7 @@ The iOS app stays pure SwiftUI, so it's always ejectable. If Skip ever becomes a
 
 - **Descriptors only.** Build wallets from output descriptors. Default account: **BIP84 native segwit (`wpkh`)** with **network-aware coin-type** — `m/84'/0'/0'` on mainnet, `m/84'/1'/0'` on every test network — external `…/0/*`, internal `…/1/*`. Templates live in `Descriptors.swift` and take a `WalletNetwork`.
 - **Network is a switchable view, resolved via `NetworkRegistry`** (see §4 / `docs/wallet-and-network-model.md`). A wallet's selected network passes to BDK at construction (`check_network` enforced on load), but the user can switch among the testnet-class networks (Testnet4 / eCash-testnet / eCash-signet — shared coin-type `1'`, so one descriptor set serves all three). Each network has its own backend + isolated balance/history. **eCash mainnet** (coin-type `0'`) is a later, deliberate addition. Never hardcode a network outside the registry.
-- **Backend per network.** Each `WalletNetwork` has a default Electrum/Esplora endpoint in the registry (e.g. Testnet4 and mainnet public servers; L2L signet/eCash endpoints for the fork). Endpoints are overridable in Settings, scoped per network. Make the client swappable.
+- **Backend per network.** Each `WalletNetwork` has a default backend in the registry. **Implemented (Settings → Network, v1 SHIPPED 2026-06-14):** user-selectable **Electrum or Esplora** custom endpoint per network + Test-connection probe, plus a global **SOCKS5/Tor** proxy; overrides persist in UserDefaults and evict cached engines on change. CBF/own-node and embedded Tor are v2. The BDK backend analysis (no bitcoind-RPC in the binding; Electrum/Esplora/CBF only) is in `docs/backends-and-endpoints.md`. Keep the client swappable; overrides are scoped per network.
 - **Sync:** explicit, user-visible, **per wallet**. Show sync state (idle / syncing / error). Persist each wallet's BDK chain data locally (SQLite, namespaced by `walletId`) so cold start is fast. Switching the selected wallet shows that wallet's cached state immediately, then refreshes. **Scan model (LEARNED 2026-06-12):** full scan (gap limit 20) ONLY on a wallet's first-ever sync; every later sync uses `startSyncWithRevealedSpks` — a full scan's gap limit SKIPS funds at high revealed indices (>20 consecutive unused below them), which silently hid a real incoming tx. Relatedly, the Receive screen shows the next **unused** address (`nextUnusedAddress`) and only advances on an explicit "New address" tap — advancing per screen-open is what inflated the index space past the gap.
 - **Transactions:** build via `TxBuilder` → `Psbt` → `sign` → `broadcast`. **RBF is signaled by default in BDK** — keep it on and reflect it in the UI.
 - **Fees:** fetch fee estimates from the backend; offer slow/normal/fast. Never let the user send with a zero/placeholder fee.
@@ -231,7 +231,7 @@ The iOS app stays pure SwiftUI, so it's always ejectable. If Skip ever becomes a
 - **Backup flow:** reveal seed behind an explicit "I understand" gate; require the user to re-enter / confirm a subset of words before marking backed-up. Block screenshots on the reveal screen where the platform allows (`FLAG_SECURE` on Android; obscure on iOS backgrounding).
 - **No telemetry of secrets.** Scrub all error paths. A signing error reports "signing failed," never the offending key/descriptor.
 - **App lock (IMPLEMENTED):** biometric/passcode gate on launch + foreground resume via `AppLockModel` → `LockScreen` root gate, with a Settings **"Require unlock"** toggle (default ON). The **Confirm-send** step is independently gated on the same `DeviceAuth` path (`SendViewModel.authorize` seam), honoring the same toggle. On devices with no credential enrolled, `DeviceAuth` passes through rather than locking the user out. Pairs with watch-only sign-on-demand above — auth and the one-shot key load happen together at send.
-  - **Background grace window (2026-06-13):** the foreground gate has a configurable grace (Settings → Security → **Auto-lock**: Immediately / 10s / 30s / 1 min / 5 min, default **10s**, persisted). `RootView` calls `appLock.markBackgrounded()` on scenePhase `.background` (stamps the time, does NOT lock) and `appLock.applyForegroundLock()` on `.active` (re-locks only if the gap exceeded the grace). So popping out to copy an address and coming right back skips re-auth. **Privacy cover (`PrivacyCover`):** because the grace window deliberately leaves the app unlocked while backgrounded, `RootView` raises a full-screen brand cover (logo on `bg0`) on `.inactive`/`.background` so balances/addresses never show in the app-switcher snapshot — **instantly** (no animation, so the OS snapshot is already obscured) and **faded out** (`withAnimation(.easeOut 0.28s)`) on `.active` so the reveal isn't abrupt.
+  - **Background grace + privacy cover:** the foreground gate has a configurable **Auto-lock** grace (Settings; default 10s) — `RootView` stamps `markBackgrounded()` on `.background` and `applyForegroundLock()` on `.active`, re-locking only past the grace (a quick hop out skips re-auth). `PrivacyCover` (logo on `bg0`) is raised on `.inactive`/`.background` so the app-switcher snapshot never shows balances — rendered **conditionally** (an always-present opacity-0 overlay swallows all touches on Compose), instant out, faded back.
 
 ---
 
@@ -239,28 +239,17 @@ The iOS app stays pure SwiftUI, so it's always ejectable. If Skip ever becomes a
 
 ### Canonical visual spec: `DESIGN.md`
 
-The detailed SwiftUI realization of this design system lives in **`DESIGN.md`** (in the repo root). It is the source of truth for the **token system, type scale, spacing/radius/motion, the domain components** (`BalanceView`, `AmountText`, `AddressChip`, `NetworkBadge`, `TxRow` content, seed-word grid, QR) and **voice & copy**. Its color tokens match this file's palette. Use `Theme.*` tokens — never hard-code colors, fonts, or spacing.
-
-**Precedence (read before following `DESIGN.md`):** `DESIGN.md` was written iOS-first and assumes iOS 26. Where it conflicts with this file's Skip + cross-platform rules, **this file wins.** Specifically:
-
-- **Icons:** `DESIGN.md` §4 maps to **SF Symbols** and uses `Image(systemName:)` / `Label(systemImage:)`. Those **do not transpile to Android** (Golden Rule / §3) — treat §4 as the *semantic icon vocabulary* but render via the Material Symbols **`.symbolset`** workflow, not `systemName:`.
-- **Colors:** `DESIGN.md`'s `Color+Theme.swift` uses `import UIKit` + `UIColor { traitCollection … }` for adaptive colors — **UIKit is Apple-only and won't compile on Android.** Implement the same tokens with SwiftUI-native adaptive color (`Color(light:dark:)` / asset catalog) so they transpile to a Compose `ColorScheme`.
-- **iOS 26 Liquid Glass:** glass `TabView`, `.glassEffect()`, `.glass`/`.glassProminent`, `.tabViewBottomAccessory`, `.tabBarMinimizeBehavior` are **iOS-26-only** and have no Compose mapping. Our iOS floor **is** iOS 26 (§3), so these need **no `#available` gate on the iOS path** — but they remain **iOS-only**: keep them behind `#if os(iOS)` / off the shared+Android path, where the portable baseline must stay plain SwiftUI that Skip supports (Compose has no glass equivalent).
-- **Chrome philosophy:** `DESIGN.md`'s "lean entirely on native system chrome" is great on iOS but is the opposite of portable — confirm each chrome element (`TabView`, `NavigationStack`, `List(.insetGrouped)`, `.sheet`/`.presentationDetents`, `.searchable`, `.confirmationDialog`) is within Skip's supported SwiftUI subset before relying on it; substitute a Skip-safe equivalent where it isn't.
-- **Fonts:** `DESIGN.md` introduces **Space Grotesk** (display) + **IBM Plex Sans** (body) with JetBrains Mono for money/mono only — a different type system than this file's "JetBrains Mono-led, match ecash.com." **Decide one** (see §14) and make both files agree.
-- **Mainnet badge:** `DESIGN.md` defines an orange `netMainnet` badge; this file says **mainnet is unmarked** (only non-mainnet shows the violet `netTestnet` chip) — and an orange mainnet badge risks blurring with the orange action `accent`. Reconcile in favor of unmarked mainnet unless you change the rule deliberately.
-
-A **Skip-safe revision of `DESIGN.md`** that folds in the above is pending — until then, follow `DESIGN.md` for tokens/components/voice and this file for platform mechanics.
+**`DESIGN.md`** (repo root) is the as-built, **Skip-safe** visual spec — token system, type scale, spacing/radius/motion, the real domain components/screens, and voice & copy. It was revised 2026-06-14 to match the implementation: SwiftUI-native asset-catalog colors (no UIKit), Material Symbols `.symbolset` (no SF Symbols), the **two-font** system (Space Grotesk + JetBrains Mono — IBM Plex dropped), real amber `accent`, every network chipped (Bitcoin orange), and stock chrome (no iOS-26 glass). Use `Theme.*` tokens — never hard-code colors, fonts, or spacing. On any platform-mechanics conflict, **this file (CLAUDE.md) still wins.**
 
 ---
 
-Source of truth is **ecash.com**: dark-first, CSS-variable driven (`--bg-0` family), monospace. Font is **JetBrains Mono** per current read (note: the older XEC "eCash" brand used Montserrat — this L2L ecash.com is a different, monospace-driven site; default to JetBrains Mono and confirm — and reconcile with `DESIGN.md`'s Space Grotesk + IBM Plex choice, §14).
+Source of truth is **ecash.com**: dark-first, monospace-driven. **Type system (decided):** Space Grotesk (display/headings) + JetBrains Mono (body/labels/mono). (Confirm the exact ecash.com font someday.)
 
-Implement tokens as a single semantic palette in `EcashWalletUI/Theme.swift`, backed by an asset catalog with **Any (light) + Dark** appearances on iOS; Skip maps these to a Compose `ColorScheme`. Never use raw hex in views — only semantic tokens.
+Tokens live as a single semantic palette in `DesignSystem/Theme.swift`, backed by an asset catalog with **Any (light) + Dark** appearances; Skip maps these to a Compose `ColorScheme`. Never use raw hex in views — only semantic tokens.
 
 ### Brand assets
 
-- **Logo:** `ecash-logo.svg` (source: `https://ecash.com/ecash-logo.svg`). Vendor it into the repo at `Sources/EcashWalletUI/Resources/Logo/`. It's the brand mark for the splash screen, the home header, the About screen, and the source art for the app icon.
+- **Logo:** `ecash-logo.svg` (source: `https://ecash.com/ecash-logo.svg`), vendored as a PNG imageset at `Sources/ECashWalletMobile/Resources/Module.xcassets/logo.imageset` and rendered via the `Logo` component (resolves per platform). Brand mark for the splash/lock screens, the home header, onboarding, and the source art for the app icon.
 - **Cross-platform SVG note:** SwiftUI/Xcode renders SVG via an asset catalog image set with **Preserve Vector Data** on. Compose does **not** consume SVG directly — convert the logo to an Android **vector drawable** (`ic_logo.xml`) for the Android build, or render through a Skip-supported image path. Keep a single `Logo` view in `EcashWalletUI` that resolves the correct asset per platform so call sites stay clean.
 - Provide light- and dark-appropriate logo variants if the mark isn't legible on both `bg0` values (check once the real logo + palette are in).
 - The logo's own fill color(s) are a likely source for the brand **accent** token — derive `accent` from the SVG once it's vendored (see §8 token table).
@@ -302,7 +291,7 @@ console.log(JSON.stringify(out, null, 2));
 | `netTestnet` | Testnet badge bg (high-contrast, NOT brand color) | `#7A4DFF` | `#6A3DF0` |
 | `netTestnetText` | Text on testnet badge | `#FFFFFF` | `#FFFFFF` |
 
-> Mainnet wallets show **no** network badge (mainnet is the unmarked default). Every non-mainnet wallet shows the `netTestnet` badge with the network name (e.g. "TESTNET4", later "eCASH TESTNET"). Pick a `netTestnet` color that is impossible to confuse with `accent`, `positive`, or `negative`.
+> **Every** wallet shows a network chip with the network name, colored per network via `NetworkChipStyle` (a code-level, non-user-facing config): **Bitcoin mainnet** = `netMainnet` (Bitcoin orange `#F7931A`), testnets = `netTestnet` (violet). Each network is its own knob; pick colors impossible to confuse with `accent`, `positive`, or `negative`.
 
 > `accent` is the real eCash brand amber **`#E8A84A` (rgb 232,168,74)**, provided by Jake 2026-06-13 (colorsets written as float components — the Skip-safe form). `accentTint` = same hue at 12% alpha; `accentHover` = a darker shade (light) / lighter shade (dark). The other surface/text tokens are still the placeholder palette pending the full ecash.com token dump (§14 #1).
 
@@ -327,7 +316,7 @@ The app is wallet-centric: there is always a **selected wallet**, and the UI is 
 
 - **Wallet switcher** in the home header — shows the selected wallet's name + its network badge; tapping opens the wallet list. Switching is one tap and immediately re-roots home to the new wallet's balance/history (cached first, then sync).
 - **Wallet list / manager** — all wallets with name, network badge, and balance; actions to **add**, **import**, **rename**, **remove** (with backup warning + typed/confirmed gate), and reorder. "Add wallet" and "Import wallet" both require choosing a **network** up front.
-- **Network badge everywhere it matters** — home, send review, receive, history, and the switcher. Non-mainnet wallets carry the persistent `netTestnet` chip with the network name; mainnet is unmarked. This is a safety feature, not decoration (§6).
+- **Network chip everywhere it matters** — home, send review, receive, history, and the switcher. Every wallet carries a persistent chip in its network's color (testnets violet, Bitcoin mainnet orange — `NetworkChipStyle`). This is a safety feature, not decoration (§6).
 - **Send review must state the network** alongside recipient/amount/fee; for a mainnet send, the confirm affordance should feel weightier than a testnet one.
 - **Receive screens** show the network so a user can't hand out a testnet address expecting mainnet funds (or vice-versa).
 - **Address & unit formatting are network-derived** — address HRP (`bc1`/`tb1`/eCash HRP TBD) and the unit label (BTC vs eCash) come from the wallet's network, never hardcoded.
@@ -341,9 +330,9 @@ Keep each screen thin: view → view model → `WalletManager` / `WalletEngine`.
 
 **Wallet manager** — list of all wallets (name, network badge, balance). Actions: add, import, rename, remove, reorder, select. **Remove** requires a confirmation gate that warns if `!isBackedUp` ("you will lose access unless backed up"), then purges the wallet's Keychain entry + all its stored data (JSON metadata + BDK chain store). Selecting a wallet re-roots the app to it.
 
-**Create wallet** — **no network question** (`docs/wallet-and-network-model.md`): generate mnemonic (BDK), persist to secure store keyed by `walletId`, build the shared testnet BIP84 descriptors (coin-type `1'`), create, and route to Home on **Testnet4** as the newly selected wallet (network switchable afterward; first sync happens on Home). Non-blocking "back up now" nudge + persistent "not backed up" banner until Backup completes.
+**Create wallet** — **pick network** (`NetworkSelector`, defaults to **L2L Signet**, never auto-mainnet; picking Bitcoin swaps the testnet chip for a real-money warning): generate mnemonic (BDK), persist to secure store keyed by `walletId`, build the network-aware BIP84 descriptors (coin-type `1'` testnet / `0'` mainnet), create, and route to Home as the newly selected wallet (first sync happens on Home). Non-blocking "back up now" nudge + persistent "not backed up" banner until Backup completes.
 
-**Import wallet** — accept 12/24-word mnemonic (and, later, descriptor strings); no network question. Validate checksum via BDK before proceeding. Same per-`walletId` persistence as create; lands on Testnet4, network switchable. Reject invalid input with a clear, non-leaky message.
+**Import wallet** — accept 12/24-word mnemonic (and, later, descriptor strings) + the same `NetworkSelector` (defaults to L2L Signet). Validate checksum via BDK before proceeding. Same per-`walletId` persistence as create. Reject invalid input with a clear, non-leaky message.
 
 **Backup wallet** — gated reveal of the selected wallet's mnemonic (biometric/passcode), screenshot-blocked, followed by a verify step (confirm N random words). Mark `isBackedUp` for that wallet on success; clear its banner.
 
@@ -355,7 +344,7 @@ Keep each screen thin: view → view model → `WalletManager` / `WalletEngine`.
 
 **Transaction history** — selected wallet's txs (BDK + local cache), newest first, sent/received styling, confirmations, amount, timestamp. Detail: txid (copy + open in that network's explorer), in/out summary, fee, confirmations, RBF state. Pull-to-refresh syncs.
 
-**Settings** — global (theme system/light/dark, fiat display currency, app-lock) + **per-network backend endpoints** (override the registry default per network) + per-wallet info (label, network, backup status). About/version. **Open-source licenses** (About → pushes `LicensesScreen`): the app is GPL-2.0-or-later and ships third-party code, so attributions are mandatory. The credited projects live in **one place** — `OpenSourceLicense.all` (`App/OpenSourceLicense.swift`, the single source of truth); `LicensesScreen` only renders it, and the README acknowledgements table mirrors it. Keep all three in sync when a dependency, font, or icon set changes. (Release TODO: bundle full license texts — MIT/Apache/OFL require the notice, not just a link.)
+**Settings** — global (theme system/light/dark, fiat display currency, app-lock) + **per-network backend endpoints** (override the registry default per network) + per-wallet info (label, network, backup status). About/version. **Open-source licenses** (About → `LicensesScreen`): a GPL app shipping third-party code, so attributions are mandatory — edit the single source `OpenSourceLicense.all` (`App/OpenSourceLicense.swift`), mirrored in the README table. (Release TODO: bundle full license texts; MIT/Apache/OFL need the notice, not just a link.)
 
 ---
 
@@ -366,16 +355,9 @@ Keep each screen thin: view → view model → `WalletManager` / `WalletEngine`.
 - **Money:** `Amount` value type wrapping `Int64` sats (signed, CAmount-style — see §5/§6 for why not UInt64); formatting helpers only at the view layer; support sats and eCash-unit display.
 - **No force-unwraps** on anything network/BDK-derived.
 - **Naming:** `EcashWallet*` for app modules; types read in plain Bitcoin terms (`Utxo`, `WalletTx`, `FeeRate`). No cute codenames in shipping code.
-- **Modal dismiss/commit affordances:** never spell out "Cancel"/"Done" toolbar buttons — use the shared `CloseToolbarButton` (iOS `Button(role: .close)` → system X; Material X on Android) and `ConfirmToolbarButton` (iOS `Button(role: .confirm)` → system checkmark; Material check on Android) from `Components/ToolbarButtons.swift`. This keeps every sheet/flow consistent and native on both platforms.
-- **Text inputs:** standardize on `.textFieldStyle(.plain)` + `fieldBoxInset()` (from `DesignSystem/PlatformChrome.swift`) over a `Theme` box background — `.plain` clears SkipUI's default `OutlinedTextField` border (the stray Android focus ring) and `fieldBoxInset()` gives even inner padding on both platforms. Applies to `TextEditor` too (shared `_textFieldStyle` env flag).
-- **Localization — localize as we go (`skip-localization`):** every user-facing string is authored at a `bundle: .module` site so it extracts into `Resources/Localizable.xcstrings` and ships to both platforms. **Two forms only:**
-  1. **Rendered text →** `Text("…", bundle: .module, comment: "…")` (interpolation OK: `Text("Max: \(x)", bundle: .module, comment: "…")`).
-  2. **A string passed into a custom component or SwiftUI control →** type the parameter as `LocalizedStringKey` and render it inside with `Text(key, bundle: .module)`; call sites pass a bare literal (`WalletButton(title: "Next")`). Our `WalletButton`, `PlaceholderScreen`, `actionCircle`, `reviewRow`, `actionLabel`, `detailRow`, `actionRowLabel` all follow this. Computed copy rendered as text returns `LocalizedStringKey` (e.g. `TxRow.metaText`).
-  - **Do NOT use `String(localized:bundle:comment:)`** — the skill recommends it, but it does **not compile in the Fuse native-Android pass** (that Foundation lacks the `bundle:comment:` overload → "extra arguments #2, #3" / "cannot infer member 'module'"). It is a Lite/iOS-only form. Use the two forms above instead. (Memory: `fuse-localization-no-string-localized`.)
-  - `.navigationTitle(Text("…", bundle: .module, comment: "…"))` — use the `Text` overload, not the bare-`LocalizedStringKey` one, for module scoping.
-  - **Verbatim** (`Text(verbatim:)`) for non-translatable dynamic data: amounts, addresses, txids, the unit label, network display names, the `$0.00` fiat placeholder.
-  - **Known deferral:** locale-aware **number/date** copy that mixes a live count — `TxRow.dateText` ("Today/Yesterday/Just now") and the confirmation-count status strings — stays English for now; localize with `Date.FormatStyle` / plural rules later. Section/Toggle/Picker/TextField/confirmation-dialog *title keys* are plain `LocalizedStringKey` literals (localizable, but main-bundle-scoped — no clean `.module` form without restructuring to label closures).
-  - The checked-in catalog still has stale `skip init` template keys; a clean rewrite (prune + add the real keys) is pending and only matters once a target-language set is chosen (none declared yet → English renders from the keys).
+- **Sheet chrome:** sheets that keep a nav bar use `CloseToolbarButton` (system X) / `ConfirmToolbarButton` (system checkmark) from `Components/ToolbarButtons.swift` — never spelled-out "Cancel"/"Done". **Read-only/simple sheets (Receive, tx detail) drop the nav bar entirely** and rely on swipe-to-dismiss — a `NavigationStack` toolbar renders a grey Material top app bar on Android that tints on scroll.
+- **Text inputs:** `.textFieldStyle(.plain)` + `fieldBoxInset()` (`DesignSystem/PlatformChrome.swift`) over a `Theme` box — `.plain` kills SkipUI's Material `OutlinedTextField` border on Android; applies to `TextEditor` too.
+- **Localization (`skip-localization`):** author every user-facing string at a `bundle: .module` site (extracts to `Resources/Localizable.xcstrings`). Forms: `Text("…", bundle: .module, comment:)` for rendered text; a `LocalizedStringKey` param rendered via `Text(key, bundle: .module)` for component labels; `Text(verbatim:)` for non-translatable data (amounts/addresses/txids). **Never `String(localized:bundle:comment:)`** — it doesn't compile in the Fuse native-Android pass. Full rules + the date/count deferral: memory `fuse-localization-no-string-localized`.
 - **Tests:** the important parts are covered — see §11. Treat WalletService logic and view models as must-cover; write tests in the same PR as the code.
 
 ---
@@ -433,6 +415,7 @@ UI-level flows come later via **`skip-ui-automation`** (`skip app launch` + Maes
 
 - **BIP300/301 deposits & withdrawals** — the actual eCash differentiator. Plan to implement deposit/withdrawal transaction construction **once in Rust** (extend `bdk-ffi` or a sibling crate) and regenerate Swift + Kotlin bindings together, so the consensus-sensitive code isn't duplicated. Confirm the exact deposit/withdrawal tx format against L2L's sidechain spec before designing the UI.
 - Multisig (BDK supports it via descriptors), watch-only, PSBT import/export, sidechain selector UI, address labeling/coin control, fiat rates.
+- **Plausible deniability** — BIP39-passphrase hidden wallets (proposed; BDK's `DescriptorSecretKey(…password:)` already supports it). Design + threat model + invariant in `docs/plausible-deniability.md`.
 
 ---
 
@@ -457,8 +440,8 @@ ANDROID_SERIAL=emulator-5554 swift test # instrumented on a real emulator (neede
 
 1. Brand **accent** — ✅ DONE (2026-06-13): real eCash amber `#E8A84A` (rgb 232,168,74) wired into `accent`/`accentTint`/`accentHover` colorsets. STILL PENDING: the rest of the ecash.com surface/text tokens (the `bg*`/`text*` families are still placeholders) and confirming the `netTestnet` badge color.
 2. Vendor `ecash-logo.svg` into the repo and produce the Android vector-drawable variant (see §8 Brand assets).
-3. **Type system decision:** JetBrains Mono-led (matches ecash.com) vs `DESIGN.md`'s Space Grotesk (display) + IBM Plex Sans (body) + JetBrains Mono (money/mono). Pick one; make CLAUDE.md and `DESIGN.md` agree. Confirm the actual ecash.com font.
-4. **Produce the Skip-safe `DESIGN.md` revision** (§8 carve-outs): SwiftUI-native adaptive colors instead of UIKit, Material Symbols instead of SF Symbols, iOS-26 glass gated as iOS-only enhancement, chrome confirmed against Skip's supported subset, mainnet-unmarked reconciled.
+3. **Type system — ✅ DONE:** two fonts, **Space Grotesk** (display/headings) + **JetBrains Mono** (body/labels/mono); IBM Plex dropped. CLAUDE.md + `DESIGN.md` agree. (Still confirm the actual ecash.com font someday.)
+4. **Skip-safe `DESIGN.md` revision — ✅ DONE (2026-06-14):** rewritten to the as-built system (SwiftUI-native colors, Material Symbols, two fonts, real amber accent, every-network-chipped, stock chrome).
 5. Default backends **per network** for `NetworkRegistry`: Testnet4 Electrum/Esplora endpoint, Bitcoin mainnet endpoint, and L2L signet / eCash endpoints for the fork.
 6. **eCash network representation in BDK** — eCash is a separate chain with no rust-bitcoin `Network` variant. Decide how to model `.ecashMainnet` / `.ecashTestnet`: custom rust-bitcoin `Params`, or a forked `bdk-ffi` binding. Blocks the eCash entries in `NetworkRegistry`. (Testnet4 + Bitcoin mainnet are already first-class in BDK — no action.)
 7. eCash chain params themselves (address HRP / network magic / unit naming) once the fork spec finalizes.

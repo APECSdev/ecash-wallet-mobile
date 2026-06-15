@@ -31,6 +31,7 @@ final class BDKWalletEngineTests: XCTestCase {
     private static let mnemonic =
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 
+
     // Published BIP84 spec receiving addresses for the mnemonic above (m/84'/0'/0'/0/{0,1}).
     private static let mainnetExternal0 = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
     private static let mainnetExternal1 = "bc1qnjg0jd8228aq7egyzacy8cys3knf9xvrerkf9g"
@@ -60,7 +61,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.restore(network: network, mnemonic: Self.mnemonic)
         let wallet = managedWallet(id: "vec-\(network.rawValue)", network: network, keys: keys)
-        let engine = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
+        let engine = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { Self.mnemonic })
         let a0 = try engine.nextReceiveAddress()
         let a1 = try engine.nextReceiveAddress()
         XCTAssertEqual(a0.index, Int32(0))
@@ -189,7 +190,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.restore(network: .testnet4, mnemonic: Self.mnemonic)
         let wallet = managedWallet(id: "cn-tn4", network: .testnet4, keys: keys)
-        let engine = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
+        let engine = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { Self.mnemonic })
         do {
             // A mainnet (bc1) address on a testnet4 wallet must be rejected.
             _ = try engine.send(to: Self.mainnetExternal0,
@@ -217,7 +218,7 @@ final class BDKWalletEngineTests: XCTestCase {
         let wallet = managedWallet(id: "persist-rt", network: .testnet4, keys: keys)
 
         // First engine: reveal indices 0 and 1 (each call persists the advance).
-        let first = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
+        let first = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { Self.mnemonic })
         XCTAssertEqual(try first.nextReceiveAddress().index, Int32(0))
         XCTAssertEqual(try first.nextReceiveAddress().index, Int32(1))
         XCTAssertEqual(try first.balance(), Amount.zero) // unsynced/empty
@@ -225,7 +226,7 @@ final class BDKWalletEngineTests: XCTestCase {
         XCTAssertTrue(try first.listUtxos().isEmpty)
 
         // Second engine over the SAME chain-data dir: it must LOAD, not re-create.
-        let reloaded = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
+        let reloaded = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { Self.mnemonic })
         let next = try reloaded.nextReceiveAddress()
         XCTAssertEqual(next.index, Int32(2), "reload must continue the persisted reveal index")
         // And it derives the same address index 0 would have — i.e. the same descriptor/keychain.
@@ -247,14 +248,53 @@ final class BDKWalletEngineTests: XCTestCase {
         let walletId = "purge-me"
         let keys = try factory.restore(network: .testnet4, mnemonic: Self.mnemonic)
         let wallet = managedWallet(id: walletId, network: .testnet4, keys: keys)
-        let engine = try factory.engine(for: wallet, loadMnemonic: { Self.mnemonic })
+        let engine = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { Self.mnemonic })
         _ = try engine.nextReceiveAddress() // forces a persisted write
 
-        let sqlite = dir.appendingPathComponent("\(walletId).sqlite")
+        // Chain data is namespaced per (walletId × network): <walletId>-<network>.sqlite.
+        let sqlite = dir.appendingPathComponent("\(walletId)-testnet4.sqlite")
         XCTAssertTrue(FileManager.default.fileExists(atPath: sqlite.path), "store should exist after use")
 
         factory.purgeChainData(for: walletId)
         XCTAssertFalse(FileManager.default.fileExists(atPath: sqlite.path), "purge must delete the store")
+        #endif
+    }
+
+    /// Migration: a pre-namespacing store (`<walletId>.sqlite`) is moved to the network-scoped path
+    /// (`<walletId>-<network>.sqlite`) on next open, so existing chain data survives the layout
+    /// change instead of forcing a full rescan (`docs/network-switching.md`).
+    func testLegacyStoreMigratesToNetworkScopedPath() throws {
+        #if SKIP
+        throw XCTSkip("real BDK — host only")
+        #else
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bdk-migrate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let factory = BDKWalletEngineFactory(chainDataDirectory: dir)
+
+        let walletId = "legacy-wallet"
+        let keys = try factory.restore(network: .testnet4, mnemonic: Self.mnemonic)
+        let wallet = managedWallet(id: walletId, network: .testnet4, keys: keys)
+
+        // First open creates the network-scoped store; rename it (and siblings) back to the legacy
+        // un-namespaced path to simulate a wallet from before this change.
+        _ = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { Self.mnemonic })
+        let scoped = dir.appendingPathComponent("\(walletId)-testnet4.sqlite")
+        let legacy = dir.appendingPathComponent("\(walletId).sqlite")
+        for suffix in ["", "-wal", "-shm"] {
+            let from = dir.appendingPathComponent("\(walletId)-testnet4.sqlite\(suffix)")
+            let to = dir.appendingPathComponent("\(walletId).sqlite\(suffix)")
+            if FileManager.default.fileExists(atPath: from.path) {
+                try FileManager.default.moveItem(at: from, to: to)
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scoped.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.path))
+
+        // Re-open: the factory migrates legacy → scoped and loads successfully.
+        _ = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { Self.mnemonic })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: scoped.path), "legacy store should migrate to the network-scoped path")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path), "legacy store should be moved, not left behind")
         #endif
     }
 
@@ -270,7 +310,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.restore(network: .testnet4, mnemonic: Self.mnemonic)
         let wallet = managedWallet(id: "empty-send", network: .testnet4, keys: keys)
-        let engine = try factory.engine(for: wallet, loadMnemonic: { keys.mnemonic })
+        let engine = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { keys.mnemonic })
         do {
             _ = try engine.send(to: Self.testnet4External0, // valid same-network address
                                 amount: Amount(sats: Int64(10_000)),
@@ -296,7 +336,7 @@ final class BDKWalletEngineTests: XCTestCase {
         let wallet = managedWallet(id: "watch-only", network: .testnet4, keys: keys)
 
         var mnemonicReads = 0
-        let engine = try factory.engine(for: wallet, loadMnemonic: {
+        let engine = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: {
             mnemonicReads += 1
             return Self.mnemonic
         })
@@ -330,7 +370,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.create(network: .testnet4, wordCount: 12) // fresh, empty
         let wallet = managedWallet(id: "live-tn4", network: .testnet4, keys: keys)
-        let engine = try factory.engine(for: wallet, loadMnemonic: { keys.mnemonic })
+        let engine = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { keys.mnemonic })
 
         try await engine.sync() // must not throw against live Testnet4
         XCTAssertEqual(try engine.balance(), Amount.zero) // fresh wallet → empty
@@ -353,7 +393,7 @@ final class BDKWalletEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let keys = try factory.create(network: .signet, wordCount: 12) // fresh, empty
         let wallet = managedWallet(id: "live-signet", network: .signet, keys: keys)
-        let engine = try factory.engine(for: wallet, loadMnemonic: { keys.mnemonic })
+        let engine = try factory.engine(for: wallet, backendKind: "electrum", backendURL: "ssl://example.invalid:50002", backendProxy: nil, loadMnemonic: { keys.mnemonic })
 
         try await engine.sync() // must not throw against the live signet endpoint
         XCTAssertEqual(try engine.balance(), Amount.zero) // fresh wallet → empty

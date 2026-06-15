@@ -53,6 +53,12 @@ Kotlin) so it can call `bdk-android` directly. This split is the one architectur
 
 ## Build & run
 
+> [!WARNING]
+> **Building from source isn't recommended yet.** The wallet is under **heavy active development** —
+> APIs, storage layout, and screens change frequently, and it targets test networks by default. If
+> you build anyway, treat it as a preview: don't put real funds in a wallet built from an
+> in-development checkout. (Bitcoin mainnet is selectable but the app is pre-release.)
+
 ```bash
 # Both platforms at once (iOS Simulator + running Android emulator):
 skip app launch
@@ -66,6 +72,25 @@ adb install -r .build/skip-export/ECashWalletMobile-debug.apk
 ```
 
 iOS logs appear in the Xcode console; Android logs in Android Studio's Logcat or `adb logcat`.
+
+### Signing for a physical iOS device
+
+Simulator and Android builds need no signing setup. To run on a **real iPhone**, supply your own
+Apple Developer **Team ID** — it's deliberately not committed:
+
+```bash
+cp Darwin/DeveloperSettings.xcconfig.example Darwin/DeveloperSettings.xcconfig
+# edit the file and set DEVELOPMENT_TEAM = <your team id>   (Xcode → Settings → Accounts)
+```
+
+That file is gitignored; the project's xcconfig includes it optionally, so signing then works in
+Xcode, `xcodebuild`, and fastlane. With a device connected + trusted, you can build/install/launch
+from the command line:
+
+```bash
+scripts/run-ios-device.sh          # Debug (default)
+scripts/run-ios-device.sh Release  # Release
+```
 
 ## Testing
 
@@ -107,7 +132,8 @@ Abbreviated — see `PLAN.md` for the detailed, tracked checklist.  ✅ done · 
   block height, size**, RBF, txid, big block-explorer button — and pull-to-refresh ✅; fiat values ⬜)
 - 🟡 **Slice 7 — Settings + Wallet manager** (theme, dev reset, backup row, wallet switcher pill +
   manager sheet with switch/rename/add/import/remove + persistent selection, app-lock toggle, and an
-  **open-source licenses** screen ✅; per-network endpoints + fiat ⬜)
+  **open-source licenses** screen, and **custom per-network backend endpoints** (Electrum/Esplora +
+  Test-connection + global SOCKS5/Tor proxy) ✅; fiat ⬜)
 - ✅ **Slice 4 — Import wallet** (12/24-word restore, BDK-validated, non-leaky errors; verified
   against the BIP39/BIP84 spec vectors)
 - ✅ **Slice 3 — Backup wallet** (explicit gate → biometric/passcode → word chips → 3-word verify;
@@ -115,8 +141,8 @@ Abbreviated — see `PLAN.md` for the detailed, tracked checklist.  ✅ done · 
 - 🟡 **Milestone F — Hardening & release:** app-lock ✅ (biometric/passcode gate on launch +
   foreground, Settings toggle, default ON); secret-scrub audit ✅; localization pass ✅;
   UI smoke flows, real brand, signing/CI ⬜.
-- 🧪 **Tests:** WalletService parity suite (Robolectric, both platforms) + 47 app view-model tests
-  (Swift Testing, host `swift test`): Send, Backup, Import, Create, AppLock state machines.
+- 🧪 **Tests:** WalletService parity suite (~90 XCTest cases, Robolectric — both platforms) + 54 app
+  view-model tests (Swift Testing, host `swift test`): Send, Backup, Import, Create, AppLock.
 
 ## Security model
 
@@ -159,6 +185,8 @@ non-negotiable rules are CLAUDE.md §2 (Golden Rules) and §7 (Security model).
 - `docs/key-storage.md` — key-storage / secrets decision record (what's persisted, Keychain/Keystore, backup, app-lock).
 - `docs/accounts-and-labels.md` — design record for multi-account-per-seed (savings/checking) + per-key-pair labels/metadata (post-v1; app-owned, not BDK).
 - `docs/ios-device-signing.md` — runbook for installing on a real iPhone (Xcode signing) + the Android `adb` install path.
+- `docs/plausible-deniability.md` — design record (proposed) for BIP39-passphrase hidden wallets.
+- `docs/backends-and-endpoints.md` — how chain data is fetched + the custom-endpoint plan (Electrum/Esplora v1, CBF v2).
 
 ## Open source & acknowledgements
 

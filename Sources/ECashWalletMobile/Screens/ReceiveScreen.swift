@@ -33,7 +33,7 @@ struct ReceiveScreen: View {
         if let wallet = app.selectedWallet, let info = address {
             let params = NetworkRegistry.params(for: wallet.network)
             VStack(spacing: Theme.Space.x5) {
-                NetworkBadge(name: params.displayName, isMainnet: wallet.network.isMainnet)
+                NetworkBadge(network: wallet.network)
 
                 QRCodeView(content: info.address)
 

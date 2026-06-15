@@ -22,10 +22,10 @@ final class CreateViewModel {
         case failed(String)   // user-safe message (already scrubbed by WalletError)
     }
 
-    private let create: @MainActor (_ label: String, _ network: WalletNetwork) throws -> Void
+    private let create: @MainActor (_ label: String, _ network: WalletNetwork, _ wordCount: Int) throws -> Void
     private(set) var phase: Phase = .idle
 
-    init(create: @escaping @MainActor (_ label: String, _ network: WalletNetwork) throws -> Void) {
+    init(create: @escaping @MainActor (_ label: String, _ network: WalletNetwork, _ wordCount: Int) throws -> Void) {
         self.create = create
     }
 
@@ -38,11 +38,11 @@ final class CreateViewModel {
 
     /// Generate + persist a wallet on `network`. Synchronous BDK key derivation (no network I/O),
     /// so it's fast; surfaced as a brief `.creating` state. Errors map to a user-safe message.
-    func submit(label: String, network: WalletNetwork) {
+    func submit(label: String, network: WalletNetwork, wordCount: Int = 12) {
         guard phase != .creating else { return }
         phase = .creating
         do {
-            try create(label, network)
+            try create(label, network, wordCount)
             // Success: AppState re-roots to Home; nothing else to do here.
         } catch let error as WalletError {
             phase = .failed(error.userMessage)

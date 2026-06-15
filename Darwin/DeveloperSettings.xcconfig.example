@@ -1,0 +1,9 @@
+// Template for local signing. Copy this to `DeveloperSettings.xcconfig` (gitignored) and set your
+// own Apple Developer Team ID to build/sign on a device. Without it, device builds fail with
+// "Signing requires a development team" — simulator/Android builds don't need it.
+//
+//   cp Darwin/DeveloperSettings.xcconfig.example Darwin/DeveloperSettings.xcconfig
+//   # then edit the line below
+//
+// Find your Team ID in Xcode → Settings → Accounts, or https://developer.apple.com/account (Membership).
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
