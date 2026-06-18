@@ -39,6 +39,27 @@ struct CoinNewsV1Client: CoinNewsFetching {
         return (res.items ?? []).map(Self.map)
     }
 
+    func item(id: String) async throws -> CoinNewsItem? {
+        let res: GetItemResponse = try await rpc.unary(
+            service: Self.service, method: "GetItem", request: ItemIdRequest(itemIdHex: id))
+        return res.item.map(Self.map)
+    }
+
+    func thread(rootId: String) async throws -> [CoinNewsComment] {
+        let res: ThreadResponse = try await rpc.unary(
+            service: Self.service, method: "ListThread", request: RootIdRequest(rootIdHex: rootId))
+        return (res.comments ?? []).map { c in
+            CoinNewsComment(
+                id: c.itemIdHex ?? "",
+                parentHex: c.parentIdHex ?? rootId,
+                body: c.body ?? "",
+                authorXpkHex: c.authorXpkHex,
+                url: c.url,
+                createdAtRaw: c.blockTime,
+                score: c.score)
+        }
+    }
+
     private static func map(_ w: Item) -> CoinNewsItem {
         CoinNewsItem(
             id: w.itemIdHex ?? "",
@@ -91,4 +112,19 @@ private struct ListTopicsResponse: Decodable {
         let createdHeight: Int?
         let txid: String?
     }
+}
+
+private struct ItemIdRequest: Encodable { let itemIdHex: String }
+private struct RootIdRequest: Encodable { let rootIdHex: String }
+private struct GetItemResponse: Decodable { let item: Item? }
+private struct ThreadResponse: Decodable { let comments: [Comment]? }
+
+private struct Comment: Decodable {
+    let itemIdHex: String?
+    let parentIdHex: String?
+    let authorXpkHex: String?
+    let body: String?
+    let url: String?
+    let blockTime: String?
+    let score: Double?
 }

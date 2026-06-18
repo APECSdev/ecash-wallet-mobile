@@ -405,7 +405,10 @@ public final class WalletEngine: WalletEngineProtocol {
             throw WalletError.broadcastFailed
         }
 
-        // 5. Persist the now-spent UTXOs and return the optimistic (unconfirmed) tx for the UI.
+        // 5. Fold the broadcast tx into the wallet graph (spent inputs + new change) so a follow-up
+        // send BEFORE the next sync doesn't reselect now-spent UTXOs and fail (the "second send
+        // fails until pull-to-refresh" bug). Then persist and return the optimistic tx for the UI.
+        applyBroadcast(tx)
         _ = try? wallet.persist(persister: persister)
         let flow = wallet.sentAndReceived(tx: tx)
         let netSats = Int64(flow.received.toSat()) - Int64(flow.sent.toSat())
@@ -487,6 +490,9 @@ public final class WalletEngine: WalletEngineProtocol {
             throw WalletError.broadcastFailed
         }
 
+        // Fold the broadcast tx into the wallet graph (spent inputs + change) so a follow-up
+        // send/publish before the next sync doesn't reselect now-spent UTXOs and fail.
+        applyBroadcast(tx)
         _ = try? wallet.persist(persister: persister)
         let flow = wallet.sentAndReceived(tx: tx)
         let netSats = Int64(flow.received.toSat()) - Int64(flow.sent.toSat())
@@ -505,6 +511,23 @@ public final class WalletEngine: WalletEngineProtocol {
                         blockHeight: nil,
                         vsize: Int64(tx.vsize()),
                         coinNewsKind: WalletEngine.coinNewsKind(fromPayload: data))
+    }
+
+    /// After a successful broadcast, fold the tx into the wallet's local graph so its inputs are
+    /// marked spent and its change becomes spendable IMMEDIATELY — no sync required. Without this a
+    /// second send before the next sync reselects the just-spent UTXOs, producing a double-spend the
+    /// backend rejects (the reported "next transaction fails unless you pull-to-refresh" bug).
+    /// `lastSeen` = now (unix seconds); BDK uses it as the mempool last-seen for eviction ordering.
+    /// `applyUnconfirmedTxs` is non-throwing (it can only no-op if the tx is already known).
+    private func applyBroadcast(_ tx: Transaction) {
+        let lastSeen = UInt64(Date().timeIntervalSince1970)
+        let unconfirmed = [UnconfirmedTx(tx: tx, lastSeen: lastSeen)]
+        #if SKIP
+        // bdk-android wants a Kotlin `List<UnconfirmedTx>` (same as the `unspendable` conversion).
+        wallet.applyUnconfirmedTxs(unconfirmedTxs: unconfirmed.kotlin() as! kotlin.collections.List<UnconfirmedTx>)
+        #else
+        wallet.applyUnconfirmedTxs(unconfirmedTxs: unconfirmed)
+        #endif
     }
 
     /// Sync against the wallet's Electrum backend.

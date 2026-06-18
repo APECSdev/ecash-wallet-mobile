@@ -48,6 +48,30 @@ struct CoinNewsItem: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+/// A CoinNews comment (§7) under a story or another comment. Each comment is itself addressable by
+/// its own `id` (the indexer's `item_id_hex`), so you can reply to it or vote on it. `parentHex` is
+/// the id it replies to (the story, or another comment). `Codable` for optimistic persistence.
+struct CoinNewsComment: Identifiable, Hashable, Sendable, Codable {
+    let id: String            // item_id_hex (this comment's own ItemID)
+    let parentHex: String     // parent_id_hex (story or comment it replies to)
+    let body: String
+    let authorXpkHex: String?
+    let url: String?
+    let createdAtRaw: String?
+    let score: Double?
+
+    init(id: String, parentHex: String, body: String, authorXpkHex: String? = nil,
+         url: String? = nil, createdAtRaw: String? = nil, score: Double? = nil) {
+        self.id = id
+        self.parentHex = parentHex
+        self.body = body
+        self.authorXpkHex = authorXpkHex
+        self.url = url
+        self.createdAtRaw = createdAtRaw
+        self.score = score
+    }
+}
+
 /// A CoinNews topic (board), e.g. "US Weekly". Topic IDs are canonical (4-byte, hex); `name` is
 /// display-only metadata.
 struct CoinNewsTopic: Identifiable, Hashable, Sendable, Codable {

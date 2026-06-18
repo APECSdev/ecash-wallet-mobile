@@ -18,6 +18,10 @@ protocol CoinNewsFetching: Sendable {
     func frontPage(limit: Int) async throws -> [CoinNewsItem]
     /// Newest items in canonical scan order.
     func newFeed(limit: Int) async throws -> [CoinNewsItem]
+    /// One item by ItemID (story detail), or nil if the backend can't resolve it.
+    func item(id: String) async throws -> CoinNewsItem?
+    /// Comments under a root ItemID (a story's thread). Empty if the backend has no thread support.
+    func thread(rootId: String) async throws -> [CoinNewsComment]
 }
 
 /// Where a CoinNews backend lives + how to authenticate. `bearerToken` is set for BitWindow's local

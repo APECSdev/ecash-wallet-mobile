@@ -319,6 +319,36 @@ final class AppState {
             makeCreateTopic: { onCreated in self.makeCreateTopicViewModel(onCreated: onCreated) })
     }
 
+    /// Vend a `CoinNewsDetailViewModel` for a story (the detail page): loads its thread, casts votes,
+    /// posts comments. Votes/comments are signed on-chain txs with a default fee, bio-gated like
+    /// publishing. `nil` with no selected wallet.
+    func makeCoinNewsDetailViewModel(item: CoinNewsItem) -> CoinNewsDetailViewModel? {
+        guard let id = selectedWalletId, let wallet = selectedWallet else { return nil }
+        let params = NetworkRegistry.params(for: wallet.network)
+        let defaultFee = FeeRate(satPerVByte: 2)   // "Normal" — votes/comments are small txs
+        return CoinNewsDetailViewModel(
+            item: item,
+            network: wallet.network,
+            unitLabel: params.unitLabel,
+            fetchItem: { itemId in try await self.coinNews.item(id: itemId) },
+            fetchThread: { rootId in try await self.coinNews.thread(rootId: rootId) },
+            vote: { targetIdHex, up in
+                let tx = try await self.manager.publishVote(walletId: id, targetIdHex: targetIdHex, upvote: up, feeRate: defaultFee)
+                self.insertPending(tx)   // show the vote tx in Activity immediately (CoinNews vote)
+                return tx
+            },
+            comment: { parentIdHex, body in
+                let tx = try await self.manager.publishComment(walletId: id, parentIdHex: parentIdHex, body: body, feeRate: defaultFee)
+                self.insertPending(tx)   // show the comment tx in Activity immediately
+                return tx
+            },
+            pending: pendingCoinNews,
+            authorize: { reason in
+                guard self.appLock.enabled else { return true }
+                return await DeviceAuth.authenticate(reason: reason)
+            })
+    }
+
     /// Optimistically surface a just-broadcast tx (pending, no timestamp → sorts to the top).
     /// The next sync replaces this view with BDK's persisted truth, including the balance.
     private func insertPending(_ tx: WalletTx) {

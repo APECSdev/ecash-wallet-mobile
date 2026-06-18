@@ -21,6 +21,8 @@ import WalletService
         func topics() async throws -> [CoinNewsTopic] { topicsList }
         func frontPage(limit: Int) async throws -> [CoinNewsItem] { items }
         func newFeed(limit: Int) async throws -> [CoinNewsItem] { items }
+        func item(id: String) async throws -> CoinNewsItem? { items.first { $0.id == id } }
+        func thread(rootId: String) async throws -> [CoinNewsComment] { [] }
     }
 
     private func item(_ id: String, _ topicHex: String) -> CoinNewsItem {

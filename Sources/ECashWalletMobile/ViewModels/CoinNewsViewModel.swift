@@ -33,6 +33,12 @@ final class CoinNewsViewModel {
         case topic(String)   // topicHex
     }
 
+    /// Feed ordering: `.top` = `ListFrontPage` (HN-style ranking), `.new` = `ListNewFeed` (newest first).
+    enum SortMode: Equatable {
+        case top
+        case new
+    }
+
     /// The network this feed belongs to (CoinNews is per-network).
     let network: WalletNetwork
 
@@ -45,6 +51,9 @@ final class CoinNewsViewModel {
 
     /// Active feed scope (set from the topic manager). Drives `visibleItems`.
     var feedFilter: FeedFilter = .all
+    /// Feed ordering (ListFrontPage vs ListNewFeed). Change via `setSort` (re-fetches). Defaults to
+    /// Latest (newest-first) — most intuitive for a fresh look at the board.
+    private(set) var sort: SortMode = .new
     /// Mirror of the per-network followed topic IDs (owned by `TopicSubscriptionStore`); kept in sync
     /// by `AppState`/`TopicsViewModel` so the `.followed` filter can be applied locally.
     var followed: Set<String> = []
@@ -84,6 +93,16 @@ final class CoinNewsViewModel {
     /// Topic display name for an item's `topicHex`, if known.
     func topicName(for topicHex: String) -> String? { topicNames[topicHex] }
 
+    /// Fetch a story's comment thread through this network's backend (used by the detail page).
+    func thread(rootId: String) async throws -> [CoinNewsComment] {
+        try await fetcher.thread(rootId: rootId)
+    }
+
+    /// Fetch a fresh copy of one item (GetItem) — refreshes points + commentCount on the detail page.
+    func item(id: String) async throws -> CoinNewsItem? {
+        try await fetcher.item(id: id)
+    }
+
     /// Optimistically surface a just-published **story** before the indexer picks it up. Persisted
     /// (survives refresh/restart) and reconciled away once the indexer returns it.
     func addPendingStory(_ item: CoinNewsItem) {
@@ -111,11 +130,20 @@ final class CoinNewsViewModel {
     /// Force a refresh (pull-to-refresh).
     func refresh() async { await reload() }
 
+    /// Switch feed ordering (Top ↔ Newest) and re-fetch.
+    func setSort(_ mode: SortMode) async {
+        guard mode != sort else { return }
+        sort = mode
+        await reload()
+    }
+
     private func reload() async {
         state = .loading
         do {
             let fetchedTopics = try await fetcher.topics()
-            let fetchedItems = try await fetcher.frontPage(limit: 50)
+            let fetchedItems = sort == .top
+                ? try await fetcher.frontPage(limit: 50)
+                : try await fetcher.newFeed(limit: 50)
 
             // Reconcile optimistic copies against what the indexer now returns (drops confirmed +
             // TTL-expired), then merge the survivors on top so just-published content stays visible.

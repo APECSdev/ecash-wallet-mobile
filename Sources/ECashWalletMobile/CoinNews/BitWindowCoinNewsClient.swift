@@ -27,6 +27,10 @@ struct BitWindowCoinNewsClient: CoinNewsFetching {
     func frontPage(limit: Int) async throws -> [CoinNewsItem] { try await listCoinNews(limit: limit) }
     func newFeed(limit: Int) async throws -> [CoinNewsItem] { try await listCoinNews(limit: limit) }
 
+    // misc.v1 has no GetItem/ListThread — detail + comments need the standalone coinnews.v1 indexer.
+    func item(id: String) async throws -> CoinNewsItem? { nil }
+    func thread(rootId: String) async throws -> [CoinNewsComment] { [] }
+
     private func listCoinNews(limit: Int) async throws -> [CoinNewsItem] {
         let res: ListCoinNewsResponse = try await rpc.unary(service: Self.service, method: "ListCoinNews", request: EmptyRequest())
         let items = (res.coinNews ?? []).map { wire -> CoinNewsItem in

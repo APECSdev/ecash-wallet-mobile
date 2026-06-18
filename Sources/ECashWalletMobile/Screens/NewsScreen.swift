@@ -10,20 +10,19 @@ import SwiftUI
 /// layout (same rule as `ActivityScreen`).
 struct NewsScreen: View {
     @Environment(AppState.self) var app
-    @Environment(\.openURL) var openURL   // not `private` — Fuse bridges view properties
     @State var showCompose = false   // not `private` — Fuse bridges @State
     @State var showTopics = false
 
     var body: some View {
         content
-            .navigationTitle(Text("News", bundle: .module, comment: "news screen title"))
+            .navigationTitle(Text("Coin News", bundle: .module, comment: "news screen title"))
             .toolbar {
                 // Topics manager (browse / create / follow / filter) beside compose.
                 ToolbarItem(placement: .primaryAction) {
                     Button { showTopics = true } label: { Image(icon: Icon.topics) }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showCompose = true } label: { Image(icon: Icon.add) }
+                    Button { showCompose = true } label: { Image(icon: Icon.compose) }
                 }
             }
             .sheet(isPresented: $showCompose) {
@@ -34,6 +33,11 @@ struct NewsScreen: View {
             .sheet(isPresented: $showTopics) {
                 if let vm = app.makeTopicsViewModel() {
                     ManageTopicsView(viewModel: vm)
+                }
+            }
+            .navigationDestination(for: CoinNewsItem.self) { item in
+                if let vm = app.makeCoinNewsDetailViewModel(item: item) {
+                    CoinNewsDetailView(viewModel: vm)
                 }
             }
             .task { await app.coinNews.load() }
@@ -116,19 +120,45 @@ struct NewsScreen: View {
         }
     }
 
-    /// A feed row. If the story has a URL, the whole row opens it in the system browser (SkipUI maps
-    /// `openURL` to a browser intent on Android); otherwise it's a plain, non-tappable row (any
-    /// in-body Markdown links still work). No `.buttonStyle(.plain)` → the List cell owns the tap.
+    /// A feed row → pushes the story detail (comments + votes). The story's URL is opened from the
+    /// detail page's "Open link" button, not the row.
     @ViewBuilder private func storyRow(_ item: CoinNewsItem, _ vm: CoinNewsViewModel) -> some View {
-        let row = NewsRow(item: item,
-                          topicName: vm.topicName(for: item.topicHex),
-                          isPending: vm.isPending(itemID: item.id))
-        if let urlString = item.url, !urlString.isEmpty, let url = URL(string: urlString) {
-            Button { openURL(url) } label: {
-                row.frame(maxWidth: .infinity, alignment: .leading)
+        NavigationLink(value: item) {
+            NewsRow(item: item,
+                    topicName: vm.topicName(for: item.topicHex),
+                    isPending: vm.isPending(itemID: item.id))
+        }
+    }
+
+    /// Sort selector at the top of the list — a text dropdown ("Top" / "Latest"), no icon.
+    @ViewBuilder private func sortSelector(_ vm: CoinNewsViewModel) -> some View {
+        Menu {
+            sortButton(.top, "Top")
+            sortButton(.new, "Latest")
+        } label: {
+            HStack(spacing: Theme.Space.x1) {
+                (vm.sort == .top
+                    ? Text("Top", bundle: .module, comment: "sort: ranked feed")
+                    : Text("Latest", bundle: .module, comment: "sort: newest feed"))
+                    .textStyle(.sm)
+                    .foregroundStyle(Theme.Colors.text0)
+                Image(icon: Icon.expand)
+                    .resizable().scaledToFit().frame(width: 14, height: 14)
+                    .foregroundStyle(Theme.Colors.text2)
+                Spacer()
             }
-        } else {
-            row
+        }
+    }
+
+    @ViewBuilder private func sortButton(_ mode: CoinNewsViewModel.SortMode, _ title: LocalizedStringKey) -> some View {
+        Button {
+            Task { await app.coinNews.setSort(mode) }
+        } label: {
+            if app.coinNews.sort == mode {
+                Label { Text(title, bundle: .module) } icon: { Image(icon: Icon.check) }
+            } else {
+                Text(title, bundle: .module)
+            }
         }
     }
 
@@ -153,6 +183,11 @@ struct NewsScreen: View {
             .background(Theme.Colors.bg0)
         } else {
             List {
+                // Sort dropdown at the top of the list (scrolls with the feed).
+                sortSelector(vm)
+                    #if os(iOS)
+                    .listRowSeparator(.hidden)
+                    #endif
                 if vm.feedFilter != .all {
                     // Scrolls away with the feed (a row, not a pinned banner).
                     filterIndicator(vm)

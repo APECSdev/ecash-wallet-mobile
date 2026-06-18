@@ -31,6 +31,47 @@ extension View {
         #endif
     }
 
+    /// Force a FLAT (plain-style) list onto the app base background (`bg0`) on BOTH platforms, so the
+    /// surface is uniformly bg0 with no system grouping tint (iOS) and no Material `surfaceVariant`
+    /// grey (Android). Pair with `.listStyle(.plain)` + `.listRowBackground(Theme.Colors.bg0)` for a
+    /// flat list (no card "bubbles"). `#if os(Android)` is honored in Fuse view bodies (only `#if SKIP`
+    /// is dead there); macOS host has no `scrollContentBackground` quirk to worry about.
+    @ViewBuilder
+    func themedFlatListBackground() -> some View {
+        #if os(iOS)
+        self.scrollContentBackground(.hidden).background(Theme.Colors.bg0)
+        #elseif os(Android)
+        self.background(Theme.Colors.bg0)
+        #else
+        self
+        #endif
+    }
+
+    /// Hide a list row's TOP separator (the hairline a plain `List` draws above its first row, which
+    /// reads as a divider right under the nav bar). iOS-only — `listRowSeparator` is on the SkipUI
+    /// Compose-crash watchlist for Android, and the macOS host lacks the `edges:` overload; Android
+    /// rows fit without it.
+    @ViewBuilder
+    func hideTopRowSeparator() -> some View {
+        #if os(iOS)
+        self.listRowSeparator(.hidden, edges: .top)
+        #else
+        self
+        #endif
+    }
+
+    /// Hide the bottom tab bar for this view (a pushed full-height detail, e.g. a story page).
+    /// Gated off the macOS host build, where `ToolbarPlacement.tabBar` is marked unavailable (macOS
+    /// is only the transpile/test target — §3); iOS + Android (Compose) both honor it.
+    @ViewBuilder
+    func hideTabBar() -> some View {
+        #if os(macOS)
+        self
+        #else
+        self.toolbar(.hidden, for: .tabBar)
+        #endif
+    }
+
     /// Inline (centered, non-large) navigation title on iOS — the right style for sheets, and it
     /// reliably picks up the brand inline-title appearance. No-op on Android (its sheet top app bar
     /// is already inline) and on the macOS host (where `navigationBarTitleDisplayMode` doesn't exist).

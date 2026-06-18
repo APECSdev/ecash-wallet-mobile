@@ -10,4 +10,6 @@ struct EmptyCoinNewsClient: CoinNewsFetching {
     func topics() async throws -> [CoinNewsTopic] { [] }
     func frontPage(limit: Int) async throws -> [CoinNewsItem] { [] }
     func newFeed(limit: Int) async throws -> [CoinNewsItem] { [] }
+    func item(id: String) async throws -> CoinNewsItem? { nil }
+    func thread(rootId: String) async throws -> [CoinNewsComment] { [] }
 }

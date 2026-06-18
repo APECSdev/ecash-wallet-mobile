@@ -48,12 +48,20 @@ struct Icon {
     // General actions
     static let copy = Icon("content_copy")
     static let share = Icon("share")
+    /// Open an external link. iOS uses the SF Symbol `link`; Android falls back to the `share`
+    /// symbolset until a Material `link.symbolset` is vendored (TODO).
+    static let link = Icon("share", sf: "link")
     static let refresh = Icon("refresh")
     static let add = Icon("add")
     static let more = Icon("more_horiz")
     static let search = Icon("search")
-    /// Topic manager / feed filter — a filter glyph (Material `filter_list`, SF decreasing lines).
-    static let topics = Icon("filter_list", sf: "line.3.horizontal.decrease")
+    /// Topic manager / feed filter — sliders/adjust glyph (SF `slider.horizontal.3`; Android reuses
+    /// the `filter_list` lines, visually close).
+    static let topics = Icon("filter_list", sf: "slider.horizontal.3")
+    /// Sort/order toggle — SF up/down arrows on iOS; reuses the `swap_horiz` glyph on Android.
+    static let sort = Icon("swap_horiz", sf: "arrow.up.arrow.down")
+    /// Compose / write a post — SF compose box on iOS; reuses the `edit` pencil glyph on Android.
+    static let compose = Icon("edit", sf: "square.and.pencil")
 
     // Navigation
     static let back = Icon("chevron_left")

@@ -332,14 +332,15 @@ public final class WalletManager: @unchecked Sendable {
         return try engine.publishData(data, feeRate: feeRate)
     }
 
-    /// Publish a CoinNews **Vote** (§8) against the target Item identified by `(targetTxid, targetVout)`.
-    /// Signs with the wallet's CoinNews identity key (BIP-340), assembles the 111-byte message, and
-    /// broadcasts it as an `OP_RETURN`. `upvote == false` → downvote.
-    public func publishVote(walletId: String, targetTxid: String, targetVout: Int32,
+    /// Publish a CoinNews **Vote** (§8) against the target Item, identified by its **ItemID** (the
+    /// 24-hex `item_id_hex` the indexer returns — that 12-byte id IS the vote's `target_id`; the txid
+    /// is neither needed nor recoverable). Signs with the wallet's CoinNews identity key (BIP-340),
+    /// assembles the 111-byte message, broadcasts as `OP_RETURN`. `upvote == false` → downvote.
+    public func publishVote(walletId: String, targetIdHex: String,
                             upvote: Bool, feeRate: FeeRate) async throws -> WalletTx {
         let identity = try coinNewsIdentityKey(walletId: walletId)
-        guard let targetId = CoinNewsCrypto.itemId(txidHex: targetTxid, vout: UInt32(targetVout)) else {
-            throw WalletError.mapping(rawDescription: "invalid target txid")
+        guard let targetId = Self.dataFromHex(targetIdHex), targetId.count == 12 else {
+            throw WalletError.mapping(rawDescription: "invalid target id")
         }
         let payload = try CoinNewsMessage.signedVote(targetId: targetId, upvote: upvote,
                                                      identityPrivateKey: identity, auxRand: Self.zeroAux)
@@ -347,13 +348,13 @@ public final class WalletManager: @unchecked Sendable {
         return try engine.publishData(payload, feeRate: feeRate)
     }
 
-    /// Publish a CoinNews **Comment** (§7) replying to the parent Item `(parentTxid, parentVout)`,
-    /// with a text `body`. Signs (BIP-340) + broadcasts as an `OP_RETURN`.
-    public func publishComment(walletId: String, parentTxid: String, parentVout: Int32,
+    /// Publish a CoinNews **Comment** (§7) replying to the parent Item/Comment by its **ItemID**
+    /// (`parentIdHex`), with a text `body`. Signs (BIP-340) + broadcasts as an `OP_RETURN`.
+    public func publishComment(walletId: String, parentIdHex: String,
                                body: String, feeRate: FeeRate) async throws -> WalletTx {
         let identity = try coinNewsIdentityKey(walletId: walletId)
-        guard let parentId = CoinNewsCrypto.itemId(txidHex: parentTxid, vout: UInt32(parentVout)) else {
-            throw WalletError.mapping(rawDescription: "invalid parent txid")
+        guard let parentId = Self.dataFromHex(parentIdHex), parentId.count == 12 else {
+            throw WalletError.mapping(rawDescription: "invalid parent id")
         }
         let payload = try CoinNewsMessage.signedComment(parentId: parentId, body: body,
                                                         identityPrivateKey: identity, auxRand: Self.zeroAux)
