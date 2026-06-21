@@ -1,0 +1,38 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Skip CLI
+        run: |
+          brew update
+          brew install skiptools/skip/skip
+
+      - name: Run Skip Checkup
+        run: skip checkup || true
+
+      - name: Build Debug APK
+        run: skip export --debug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecash-debug-apk
+          path: .build/skip-export/ECashWalletMobile-debug.apk
