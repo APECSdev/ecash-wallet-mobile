@@ -5,6 +5,10 @@ on:
   push:
     branches: [ main ]
 
+# Needed for creating releases
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Debug APK
@@ -39,3 +43,19 @@ jobs:
         with:
           name: ecash-debug-apk
           path: .build/skip-export/ECashWalletMobile-debug.apk
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-debug-${{ github.run_number }}
+          name: Android Debug Build #${{ github.run_number }}
+          body: |
+            Automated Android debug APK build from commit ${{ github.sha }}
+
+            **To install:**
+            Download the `.apk` file below onto your Android device and tap to install.
+          files: .build/skip-export/ECashWalletMobile-debug.apk
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
