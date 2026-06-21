@@ -28,11 +28,8 @@ jobs:
           brew update
           brew install skiptools/skip/skip
 
-      - name: Check available Skip export flags
-        run: skip export --help
-
       - name: Build Debug APK (Android only)
-        run: skip export --debug --apk
+        run: skip export --debug --no-ios
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
