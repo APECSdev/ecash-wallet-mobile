@@ -28,6 +28,9 @@ jobs:
           brew update
           brew install skiptools/skip/skip
 
+      - name: Install Swift Android SDK
+        run: skip android sdk install
+
       - name: Build Debug APK (Android only)
         run: skip export --debug --no-ios
 
